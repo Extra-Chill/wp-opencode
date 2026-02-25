@@ -656,18 +656,7 @@ fi
 log "Phase 7: Installing OpenCode..."
 
 if ! command -v opencode &> /dev/null || [ "$DRY_RUN" = true ]; then
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} curl -fsSL https://opencode.ai/install | bash"
-    echo -e "${BLUE}[dry-run]${NC} cp /root/.opencode/bin/opencode /usr/local/bin/opencode"
-    echo -e "${BLUE}[dry-run]${NC} chmod 755 /usr/local/bin/opencode"
-  else
-    curl -fsSL https://opencode.ai/install | bash
-    # Copy binary to /usr/local/bin so the service user can access it.
-    # The install script places it at /root/.opencode/bin/opencode which
-    # is inaccessible to non-root users (can't traverse /root/).
-    cp /root/.opencode/bin/opencode /usr/local/bin/opencode
-    chmod 755 /usr/local/bin/opencode
-  fi
+  run_cmd npm install -g opencode-ai
 else
   log "OpenCode already installed: $(opencode --version 2>/dev/null || echo 'unknown')"
 fi
