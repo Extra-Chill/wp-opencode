@@ -58,6 +58,7 @@ DRY_RUN=false
 RUN_AS_ROOT=false
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
+INSTALL_SKILLS=true
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -101,6 +102,10 @@ while [[ $# -gt 0 ]]; do
       MULTISITE_TYPE="subdomain"
       shift
       ;;
+    --no-skills)
+      INSTALL_SKILLS=false
+      shift
+      ;;
     --help|-h)
       SHOW_HELP=true
       shift
@@ -131,6 +136,7 @@ OPTIONS:
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
+  --no-skills        Skip WordPress agent skills installation
   --skip-ssl         Skip SSL/HTTPS configuration
   --root             Run agent as root (default: dedicated service user)
   --dry-run          Print commands without executing
@@ -753,6 +759,54 @@ if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
 fi
 
 # ============================================================================
+# Phase 8.5: Skills
+# ============================================================================
+
+SKILLS_DIR="$SITE_PATH/skills"
+
+if [ "$INSTALL_SKILLS" = true ]; then
+  log "Phase 8.5: Installing agent skills..."
+  run_cmd mkdir -p "$SKILLS_DIR"
+
+  # Clone WordPress agent skills dynamically (always latest)
+  WP_SKILLS_REPO="https://github.com/WordPress/agent-skills.git"
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} git clone --depth 1 $WP_SKILLS_REPO (extract skill dirs to $SKILLS_DIR)"
+  else
+    WP_SKILLS_TMP=$(mktemp -d)
+    if git clone --depth 1 "$WP_SKILLS_REPO" "$WP_SKILLS_TMP" 2>/dev/null; then
+      for skill_dir in "$WP_SKILLS_TMP"/*/; do
+        skill_name=$(basename "$skill_dir")
+        if [ -f "$skill_dir/SKILL.md" ]; then
+          cp -r "$skill_dir" "$SKILLS_DIR/$skill_name"
+          log "  Installed skill: $skill_name"
+        fi
+      done
+      rm -rf "$WP_SKILLS_TMP"
+      log "WordPress agent skills installed (latest version)"
+    else
+      warn "Could not clone WordPress agent skills from $WP_SKILLS_REPO"
+      warn "Install later: git clone $WP_SKILLS_REPO && copy skill dirs to $SKILLS_DIR/"
+      rm -rf "$WP_SKILLS_TMP"
+    fi
+  fi
+
+  # Copy Data Machine skill if DM was installed and skill exists in repo
+  if [ "$INSTALL_DATA_MACHINE" = true ] && [ -d "$SCRIPT_DIR/skills/data-machine" ]; then
+    log "Copying Data Machine skill..."
+    run_cmd cp -r "$SCRIPT_DIR/skills/data-machine" "$SKILLS_DIR/" || true
+  fi
+
+  # Copy setup skill if it exists in repo
+  if [ -d "$SCRIPT_DIR/skills/wp-opencode-setup" ]; then
+    run_cmd cp -r "$SCRIPT_DIR/skills/wp-opencode-setup" "$SKILLS_DIR/" || true
+  fi
+else
+  log "Phase 8.5: Skipping agent skills (--no-skills)"
+fi
+
+# ============================================================================
 # Phase 9: Chat Bridge
 # ============================================================================
 
@@ -860,6 +914,11 @@ else
 fi
 if [ "$INSTALL_CHAT" = true ]; then
   echo "  Bridge:   $CHAT_BRIDGE"
+fi
+if [ "$INSTALL_SKILLS" = true ]; then
+  echo "  Skills:   $SKILLS_DIR"
+else
+  echo "  Skills:   Skipped (--no-skills)"
 fi
 echo ""
 

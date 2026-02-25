@@ -1,4 +1,18 @@
-node_modules/
-*.log
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
 .env
-credentials
+*.log
+node_modules/
+
+# Credentials
+# Credentials stored at ~/.wp-opencode-credentials on the VPS

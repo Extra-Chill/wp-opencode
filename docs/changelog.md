@@ -5,10 +5,15 @@
 ### Added
 - `--multisite` flag for fresh installs — converts WordPress to multisite (subdirectory by default)
 - `--subdomain` flag — use with `--multisite` for subdomain-based multisite (requires wildcard DNS)
+- `--no-skills` flag — skip WordPress agent skills installation
 - Multisite auto-detection for `--existing` mode
 - Per-site Data Machine activation on multisite (uses `--url` flag, not network activation)
 - Nginx configs for both subdomain and subdirectory multisite
 - Wildcard SSL guidance for subdomain multisite installs
+- WordPress agent skills cloned dynamically from [WordPress/agent-skills](https://github.com/WordPress/agent-skills) at install time
+- Data Machine skill (bundled)
+- `wp-opencode-setup` skill for local agents assisting with installation
+- `README.md`, `LICENSE` (MIT), `VERSION`
 - `docs/changelog.md`
 
 ## 0.1.0 - 2026-02-25
