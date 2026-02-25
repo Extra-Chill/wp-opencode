@@ -656,7 +656,7 @@ fi
 log "Phase 7: Installing OpenCode..."
 
 if ! command -v opencode &> /dev/null || [ "$DRY_RUN" = true ]; then
-  run_cmd npm install -g @anthropic/opencode
+  run_cmd npm install -g opencode-ai
 else
   log "OpenCode already installed: $(opencode --version 2>/dev/null || echo 'unknown')"
 fi
