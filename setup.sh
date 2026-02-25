@@ -56,6 +56,8 @@ CHAT_BRIDGE="kimaki"
 SHOW_HELP=false
 DRY_RUN=false
 RUN_AS_ROOT=false
+MULTISITE=false
+MULTISITE_TYPE="subdirectory"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -91,6 +93,14 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=true
       shift
       ;;
+    --multisite)
+      MULTISITE=true
+      shift
+      ;;
+    --subdomain)
+      MULTISITE_TYPE="subdomain"
+      shift
+      ;;
     --help|-h)
       SHOW_HELP=true
       shift
@@ -119,6 +129,8 @@ OPTIONS:
   --chat <bridge>    Chat bridge to install (default: kimaki)
                      Supported: kimaki (Discord)
   --skip-deps        Skip apt package installation
+  --multisite        Convert to WordPress Multisite (subdirectory by default)
+  --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
   --skip-ssl         Skip SSL/HTTPS configuration
   --root             Run agent as root (default: dedicated service user)
   --dry-run          Print commands without executing
@@ -179,6 +191,7 @@ log "Detected OS: $OS"
 log "Mode: $MODE"
 log "Chat bridge: $CHAT_BRIDGE"
 log "Data Machine: $INSTALL_DATA_MACHINE"
+log "Multisite: $MULTISITE ($MULTISITE_TYPE)"
 if [ "$DRY_RUN" = true ]; then
   log "Dry-run mode: commands will be printed, not executed"
 fi
@@ -234,6 +247,19 @@ if [ "$MODE" = "existing" ]; then
     SITE_DOMAIN=$(cd "$SITE_PATH" && wp option get siteurl --allow-root 2>/dev/null | sed 's|https\?://||' || basename "$SITE_PATH")
   fi
   log "Existing WordPress at: $SITE_PATH ($SITE_DOMAIN)"
+
+  # Detect if existing WP is multisite
+  if [ "$DRY_RUN" = false ]; then
+    IS_EXISTING_MULTISITE=$(cd "$SITE_PATH" && wp eval 'echo is_multisite() ? "yes" : "no";' --allow-root 2>/dev/null || echo "no")
+    if [ "$IS_EXISTING_MULTISITE" = "yes" ]; then
+      MULTISITE=true
+      IS_SUBDOMAIN=$(cd "$SITE_PATH" && wp eval 'echo is_subdomain_install() ? "yes" : "no";' --allow-root 2>/dev/null || echo "no")
+      if [ "$IS_SUBDOMAIN" = "yes" ]; then
+        MULTISITE_TYPE="subdomain"
+      fi
+      log "Detected existing multisite ($MULTISITE_TYPE)"
+    fi
+  fi
 else
   SITE_DOMAIN="${SITE_DOMAIN:-example.com}"
   SITE_PATH="${SITE_PATH:-/var/www/$SITE_DOMAIN}"
@@ -359,6 +385,24 @@ else
 fi
 
 # ============================================================================
+# Phase 3.5: WordPress Multisite (optional)
+# ============================================================================
+
+if [ "$MULTISITE" = true ] && [ "$MODE" = "fresh" ]; then
+  log "Phase 3.5: Converting to WordPress Multisite ($MULTISITE_TYPE)..."
+
+  if [ "$MULTISITE_TYPE" = "subdomain" ]; then
+    run_cmd wp core multisite-convert --subdomains --allow-root --path="$SITE_PATH"
+  else
+    run_cmd wp core multisite-convert --allow-root --path="$SITE_PATH"
+  fi
+
+  log "Multisite conversion complete"
+elif [ "$MULTISITE" = true ] && [ "$MODE" = "existing" ]; then
+  log "Phase 3.5: Existing multisite detected — skipping conversion"
+fi
+
+# ============================================================================
 # Phase 4: Data Machine Plugin (optional)
 # ============================================================================
 
@@ -375,8 +419,16 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
     fi
   fi
 
-  run_cmd wp plugin activate data-machine --allow-root --path="$SITE_PATH" || \
-    warn "Data Machine may already be active"
+  # Activate DM — on multisite, activate per-site (not network-wide)
+  if [ "$MULTISITE" = true ]; then
+    run_cmd wp plugin activate data-machine --allow-root --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
+      warn "Data Machine may already be active"
+    log "Data Machine activated on main site. Activate on subsites with:"
+    log "  wp plugin activate data-machine --url=subsite.$SITE_DOMAIN --allow-root"
+  else
+    run_cmd wp plugin activate data-machine --allow-root --path="$SITE_PATH" || \
+      warn "Data Machine may already be active"
+  fi
   run_cmd chown -R www-data:www-data "$DM_PLUGIN_DIR"
 
   # Create workspace directory for agent file operations
@@ -404,7 +456,68 @@ if [ "$MODE" = "fresh" ]; then
     PHP_FPM_SOCK="${PHP_FPM_SOCK:-/var/run/php/php-fpm.sock}"
   fi
 
-  NGINX_CONFIG="server {
+  if [ "$MULTISITE" = true ] && [ "$MULTISITE_TYPE" = "subdomain" ]; then
+    NGINX_CONFIG="server {
+    listen 80;
+    server_name $SITE_DOMAIN *.$SITE_DOMAIN;
+    root $SITE_PATH;
+    index index.php index.html;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location ~ \\.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:$PHP_FPM_SOCK;
+    }
+
+    location ~ /\\.ht {
+        deny all;
+    }
+
+    location ~ ^/files/(.*)$ {
+        try_files /wp-includes/ms-files.php?\$args =404;
+        access_log off;
+        log_not_found off;
+        expires max;
+    }
+}"
+  elif [ "$MULTISITE" = true ] && [ "$MULTISITE_TYPE" = "subdirectory" ]; then
+    NGINX_CONFIG="server {
+    listen 80;
+    server_name $SITE_DOMAIN www.$SITE_DOMAIN;
+    root $SITE_PATH;
+    index index.php index.html;
+
+    if (!-e \$request_filename) {
+        rewrite /wp-admin\$ \$scheme://\$host\$request_uri/ permanent;
+        rewrite ^(/[^/]+)?(/wp-.*) \$2 last;
+        rewrite ^(/[^/]+)?(/.*\\.php) \$2 last;
+    }
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location ~ \\.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:$PHP_FPM_SOCK;
+    }
+
+    location ~ /\\.ht {
+        deny all;
+    }
+
+    location ~ ^/[_0-9a-zA-Z-]+/files/(.*)$ {
+        try_files /wp-includes/ms-files.php?\$args =404;
+        access_log off;
+        log_not_found off;
+        expires max;
+    }
+}"
+  else
+    NGINX_CONFIG="server {
     listen 80;
     server_name $SITE_DOMAIN www.$SITE_DOMAIN;
     root $SITE_PATH;
@@ -414,15 +527,16 @@ if [ "$MODE" = "fresh" ]; then
         try_files \$uri \$uri/ /index.php?\$args;
     }
 
-    location ~ \.php\$ {
+    location ~ \\.php\$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:$PHP_FPM_SOCK;
     }
 
-    location ~ /\.ht {
+    location ~ /\\.ht {
         deny all;
     }
 }"
+  fi
 
   write_file "/etc/nginx/sites-available/$SITE_DOMAIN" "$NGINX_CONFIG"
   run_cmd ln -sf "/etc/nginx/sites-available/$SITE_DOMAIN" /etc/nginx/sites-enabled/
@@ -457,15 +571,34 @@ else
 
     if [ "$SERVER_IP" = "$DOMAIN_IP" ]; then
       log "DNS verified. Running certbot..."
-      if certbot --nginx -d "$SITE_DOMAIN" --non-interactive --agree-tos \
-          --email "$WP_ADMIN_EMAIL" --redirect; then
-        log "SSL certificate installed!"
+
+      if [ "$MULTISITE" = true ] && [ "$MULTISITE_TYPE" = "subdomain" ]; then
+        warn "Subdomain multisite requires a wildcard SSL certificate (*.$SITE_DOMAIN)"
+        warn "Wildcard certs require DNS validation. Install a certbot DNS plugin:"
+        warn "  apt install python3-certbot-dns-cloudflare  # (or your DNS provider)"
+        warn "Then run: certbot certonly --dns-cloudflare -d $SITE_DOMAIN -d '*.$SITE_DOMAIN'"
+        warn "Installing cert for main domain only..."
+        if certbot --nginx -d "$SITE_DOMAIN" --non-interactive --agree-tos \
+            --email "$WP_ADMIN_EMAIL" --redirect; then
+          log "SSL installed for main domain. Wildcard cert needed for subdomain sites."
+        else
+          warn "Certbot failed. Run manually: certbot --nginx -d $SITE_DOMAIN"
+        fi
       else
-        warn "Certbot failed. Run manually: certbot --nginx -d $SITE_DOMAIN"
+        if certbot --nginx -d "$SITE_DOMAIN" --non-interactive --agree-tos \
+            --email "$WP_ADMIN_EMAIL" --redirect; then
+          log "SSL certificate installed!"
+        else
+          warn "Certbot failed. Run manually: certbot --nginx -d $SITE_DOMAIN"
+        fi
       fi
     else
       warn "DNS not pointing here yet (expected $SERVER_IP, got $DOMAIN_IP)"
-      warn "Run later: certbot --nginx -d $SITE_DOMAIN"
+      if [ "$MULTISITE" = true ] && [ "$MULTISITE_TYPE" = "subdomain" ]; then
+        warn "Run later: certbot certonly --dns-<provider> -d $SITE_DOMAIN -d '*.$SITE_DOMAIN'"
+      else
+        warn "Run later: certbot --nginx -d $SITE_DOMAIN"
+      fi
     fi
   fi
 fi
@@ -708,6 +841,11 @@ else
   echo "  Model:    (OpenCode default — zen free models)"
 fi
 echo ""
+if [ "$MULTISITE" = true ]; then
+  echo "Multisite:"
+  echo "  Type:        $MULTISITE_TYPE"
+  echo ""
+fi
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
   echo "Data Machine:"
   echo "  Agent files: $SITE_PATH/wp-content/uploads/datamachine-files/agent/"
@@ -737,6 +875,8 @@ DB_NAME=$DB_NAME
 DB_USER=$DB_USER
 DB_PASS=$DB_PASS
 DATA_MACHINE=$INSTALL_DATA_MACHINE
+MULTISITE=$MULTISITE
+MULTISITE_TYPE=$MULTISITE_TYPE
 SERVICE_USER=$SERVICE_USER
 CHAT_BRIDGE=$CHAT_BRIDGE"
 
