@@ -131,7 +131,8 @@ ENVIRONMENT VARIABLES:
   DB_NAME            Database name (fresh install only)
   DB_USER            Database user (fresh install only)
   DB_PASS            Database password (auto-generated if not set)
-  OPENCODE_MODEL     Default model (default: anthropic/claude-sonnet-4-20250514)
+  OPENCODE_MODEL     Override default model (e.g., anthropic/claude-sonnet-4-20250514)
+  OPENCODE_SMALL_MODEL  Override small model (e.g., anthropic/claude-haiku-4-5)
   KIMAKI_BOT_TOKEN   Discord bot token (skip interactive setup)
 
 MIGRATION WORKFLOW:
@@ -244,8 +245,10 @@ DB_PASS="${DB_PASS:-$(openssl rand -base64 16)}"
 WP_ADMIN_USER="${WP_ADMIN_USER:-admin}"
 WP_ADMIN_PASS="${WP_ADMIN_PASS:-$(openssl rand -base64 16)}"
 WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@$SITE_DOMAIN}"
-OPENCODE_MODEL="${OPENCODE_MODEL:-anthropic/claude-sonnet-4-20250514}"
-OPENCODE_SMALL_MODEL="${OPENCODE_SMALL_MODEL:-anthropic/claude-haiku-4-5}"
+# Model defaults are empty — OpenCode uses its own zen free models by default.
+# Set these env vars to override (e.g., OPENCODE_MODEL=anthropic/claude-sonnet-4-20250514)
+OPENCODE_MODEL="${OPENCODE_MODEL:-}"
+OPENCODE_SMALL_MODEL="${OPENCODE_SMALL_MODEL:-}"
 
 # Service user configuration
 if [ "$RUN_AS_ROOT" = true ]; then
@@ -536,25 +539,33 @@ else
   OPENCODE_PROMPT='{file:./AGENTS.md}'
 fi
 
-OPENCODE_JSON="{
-  \"\$schema\": \"https://opencode.ai/config.json\",
-  \"model\": \"${OPENCODE_MODEL}\",
-  \"small_model\": \"${OPENCODE_SMALL_MODEL}\",
-  \"agent\": {
-    \"build\": {
-      \"mode\": \"primary\",
-      \"model\": \"${OPENCODE_MODEL}\",
-      \"prompt\": \"${OPENCODE_PROMPT}\"
-    },
-    \"plan\": {
-      \"mode\": \"primary\",
-      \"model\": \"${OPENCODE_MODEL}\",
-      \"prompt\": \"${OPENCODE_PROMPT}\"
-    }
-  }
-}"
+# Build opencode.json — only include model fields if explicitly set
+OPENCODE_JSON="{"
+OPENCODE_JSON="$OPENCODE_JSON\n  \"\$schema\": \"https://opencode.ai/config.json\""
 
-write_file "$SITE_PATH/opencode.json" "$OPENCODE_JSON"
+if [ -n "$OPENCODE_MODEL" ]; then
+  OPENCODE_JSON="$OPENCODE_JSON,\n  \"model\": \"${OPENCODE_MODEL}\""
+fi
+if [ -n "$OPENCODE_SMALL_MODEL" ]; then
+  OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
+fi
+
+# Agent prompt config — always include so DM memory files are injected
+OPENCODE_JSON="$OPENCODE_JSON,\n  \"agent\": {"
+OPENCODE_JSON="$OPENCODE_JSON\n    \"build\": {"
+OPENCODE_JSON="$OPENCODE_JSON\n      \"prompt\": \"${OPENCODE_PROMPT}\""
+OPENCODE_JSON="$OPENCODE_JSON\n    },"
+OPENCODE_JSON="$OPENCODE_JSON\n    \"plan\": {"
+OPENCODE_JSON="$OPENCODE_JSON\n      \"prompt\": \"${OPENCODE_PROMPT}\""
+OPENCODE_JSON="$OPENCODE_JSON\n    }"
+OPENCODE_JSON="$OPENCODE_JSON\n  }"
+OPENCODE_JSON="$OPENCODE_JSON\n}"
+
+if [ "$DRY_RUN" = true ]; then
+  echo -e "${BLUE}[dry-run]${NC} Would write to $SITE_PATH/opencode.json"
+else
+  echo -e "$OPENCODE_JSON" > "$SITE_PATH/opencode.json"
+fi
 
 # ============================================================================
 # Phase 8: AGENTS.md
@@ -691,7 +702,11 @@ echo "  Path:     $SITE_PATH"
 echo ""
 echo "OpenCode:"
 echo "  Config:   $SITE_PATH/opencode.json"
-echo "  Model:    $OPENCODE_MODEL"
+if [ -n "$OPENCODE_MODEL" ]; then
+  echo "  Model:    $OPENCODE_MODEL"
+else
+  echo "  Model:    (OpenCode default — zen free models)"
+fi
 echo ""
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
   echo "Data Machine:"
