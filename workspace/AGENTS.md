@@ -3,7 +3,7 @@
 ## Every Session
 
 Before doing anything:
-1. Your SOUL.md and MEMORY.md are auto-injected from Data Machine agent files
+1. Your SOUL.md, USER.md, and MEMORY.md are auto-injected from Data Machine agent files
 2. Check the task you received — execute it, report back
 
 ## WordPress Environment
@@ -15,6 +15,7 @@ WP-CLI: `wp --allow-root --path={{SITE_PATH}}`
 
 Memory files: `wp-content/uploads/datamachine-files/agent/`
 - SOUL.md — who you are (auto-injected)
+- USER.md — who your human is (auto-injected)
 - MEMORY.md — what you know (auto-injected)
 
 CLI access:
@@ -31,6 +32,15 @@ wp datamachine logs read pipeline --allow-root
 cat wp-content/uploads/datamachine-files/agent/MEMORY.md
 # Update it carefully — preserve existing content, append new info
 ```
+
+### Multisite
+
+If this is a WordPress multisite, use `--url` to target specific sites:
+```bash
+wp --allow-root --url=site.example.com <command>
+```
+
+Without `--url`, commands default to the main site.
 
 ## Tools Available
 

@@ -245,6 +245,7 @@ WP_ADMIN_USER="${WP_ADMIN_USER:-admin}"
 WP_ADMIN_PASS="${WP_ADMIN_PASS:-$(openssl rand -base64 16)}"
 WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@$SITE_DOMAIN}"
 OPENCODE_MODEL="${OPENCODE_MODEL:-anthropic/claude-sonnet-4-20250514}"
+OPENCODE_SMALL_MODEL="${OPENCODE_SMALL_MODEL:-anthropic/claude-haiku-4-5}"
 
 # Service user configuration
 if [ "$RUN_AS_ROOT" = true ]; then
@@ -508,8 +509,28 @@ fi
 log "Generating opencode.json..."
 
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
-  # With Data Machine: inject agent files into prompt
-  OPENCODE_PROMPT='{file:./AGENTS.md}\n{file:./wp-content/uploads/datamachine-files/agent/SOUL.md}\n{file:./wp-content/uploads/datamachine-files/agent/MEMORY.md}'
+  # Detect multisite uploads path
+  # On multisite subsites, uploads live at wp-content/uploads/sites/{id}/
+  # On single site or main site, uploads live at wp-content/uploads/
+  if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
+    IS_MULTISITE=$(wp eval 'echo is_multisite() ? "yes" : "no";' --allow-root --path="$SITE_PATH" 2>/dev/null || echo "no")
+    if [ "$IS_MULTISITE" = "yes" ]; then
+      BLOG_ID=$(wp eval 'echo get_current_blog_id();' --allow-root --path="$SITE_PATH" 2>/dev/null || echo "1")
+      if [ "$BLOG_ID" != "1" ]; then
+        DM_AGENT_PATH="wp-content/uploads/sites/${BLOG_ID}/datamachine-files/agent"
+      else
+        DM_AGENT_PATH="wp-content/uploads/datamachine-files/agent"
+      fi
+      log "Multisite detected (blog_id=$BLOG_ID). Agent files: $DM_AGENT_PATH"
+    else
+      DM_AGENT_PATH="wp-content/uploads/datamachine-files/agent"
+    fi
+  else
+    DM_AGENT_PATH="wp-content/uploads/datamachine-files/agent"
+  fi
+
+  # With Data Machine: inject all 3 agent files into prompt (SOUL → USER → MEMORY)
+  OPENCODE_PROMPT="{file:./AGENTS.md}\n{file:./${DM_AGENT_PATH}/SOUL.md}\n{file:./${DM_AGENT_PATH}/USER.md}\n{file:./${DM_AGENT_PATH}/MEMORY.md}"
 else
   # Without Data Machine: just AGENTS.md
   OPENCODE_PROMPT='{file:./AGENTS.md}'
@@ -518,6 +539,7 @@ fi
 OPENCODE_JSON="{
   \"\$schema\": \"https://opencode.ai/config.json\",
   \"model\": \"${OPENCODE_MODEL}\",
+  \"small_model\": \"${OPENCODE_SMALL_MODEL}\",
   \"agent\": {
     \"build\": {
       \"mode\": \"primary\",
@@ -571,6 +593,16 @@ if [ "$INSTALL_DATA_MACHINE" = false ]; then
   if [ -f "$SITE_PATH/AGENTS.md" ]; then
     log "Removing Data Machine references from AGENTS.md..."
     awk '/^### Data Machine/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
+      "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
+    mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
+  fi
+fi
+
+# Remove multisite section for single-site installs
+if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
+  IS_MULTISITE="${IS_MULTISITE:-no}"
+  if [ "$IS_MULTISITE" != "yes" ]; then
+    awk '/^### Multisite/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
       "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
     mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
   fi
