@@ -409,6 +409,19 @@ elif [ "$MULTISITE" = true ] && [ "$MODE" = "existing" ]; then
 fi
 
 # ============================================================================
+# Phase 3.9: Service User (early creation)
+# ============================================================================
+# Create the service user early so subsequent phases can chown to it.
+# Phase 6 handles permissions and is idempotent (detects existing user).
+
+if [ "$RUN_AS_ROOT" = false ]; then
+  if ! id -u "$SERVICE_USER" &>/dev/null || [ "$DRY_RUN" = true ]; then
+    log "Phase 3.9: Creating service user '$SERVICE_USER'..."
+    run_cmd useradd -m -s /bin/bash -G www-data "$SERVICE_USER"
+  fi
+fi
+
+# ============================================================================
 # Phase 4: Data Machine Plugin (optional)
 # ============================================================================
 
@@ -610,11 +623,12 @@ else
 fi
 
 # ============================================================================
-# Phase 6: Service User
+# Phase 6: Service User Permissions
 # ============================================================================
+# User was created in Phase 3.9. This phase handles file permissions.
 
 if [ "$RUN_AS_ROOT" = false ]; then
-  log "Phase 6: Creating service user '$SERVICE_USER'..."
+  log "Phase 6: Configuring service user permissions..."
 
   if ! id -u "$SERVICE_USER" &>/dev/null || [ "$DRY_RUN" = true ]; then
     run_cmd useradd -m -s /bin/bash -G www-data "$SERVICE_USER"
