@@ -59,9 +59,14 @@ RUN_AS_ROOT=false
 MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 INSTALL_SKILLS=true
+SKILLS_ONLY=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --skills-only)
+      SKILLS_ONLY=true
+      shift
+      ;;
     --existing)
       MODE="existing"
       shift
@@ -137,6 +142,7 @@ OPTIONS:
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
   --no-skills        Skip WordPress agent skills installation
+  --skills-only      Only run skills installation (Phase 8.5) on existing site
   --skip-ssl         Skip SSL/HTTPS configuration
   --root             Run agent as root (default: dedicated service user)
   --dry-run          Print commands without executing
@@ -294,6 +300,31 @@ else
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ============================================================================
+# --skills-only: skip everything except Phase 8.5
+# ============================================================================
+
+if [ "$SKILLS_ONLY" = true ]; then
+  if [ -z "$SITE_PATH" ] && [ -z "$EXISTING_WP" ]; then
+    error "SITE_PATH or EXISTING_WP must be set with --skills-only (e.g. SITE_PATH=/var/www/mysite ./setup.sh --skills-only)"
+  fi
+  SITE_PATH="${SITE_PATH:-$EXISTING_WP}"
+  if [ "$DRY_RUN" = false ] && [ ! -d "$SITE_PATH" ]; then
+    error "Directory not found: $SITE_PATH"
+  fi
+  # Auto-detect Data Machine if present
+  if [ -d "$SITE_PATH/wp-content/plugins/data-machine" ]; then
+    INSTALL_DATA_MACHINE=true
+  fi
+  log "Installing skills to $SITE_PATH/.opencode/skills/ ..."
+fi
+
+# ============================================================================
+# Phases 1-8 (skipped by --skills-only)
+# ============================================================================
+
+if [ "$SKILLS_ONLY" != true ]; then
 
 # ============================================================================
 # Phase 1: System Dependencies
@@ -772,11 +803,14 @@ if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
   fi
 fi
 
+# End of --skills-only guard (Phases 1-8)
+fi
+
 # ============================================================================
 # Phase 8.5: Skills
 # ============================================================================
 
-SKILLS_DIR="$SITE_PATH/skills"
+SKILLS_DIR="$SITE_PATH/.opencode/skills"
 
 if [ "$INSTALL_SKILLS" = true ]; then
   log "Phase 8.5: Installing agent skills..."
@@ -812,12 +846,22 @@ if [ "$INSTALL_SKILLS" = true ]; then
     run_cmd cp -r "$SCRIPT_DIR/skills/data-machine" "$SKILLS_DIR/" || true
   fi
 
-  # Copy setup skill if it exists in repo
-  if [ -d "$SCRIPT_DIR/skills/wp-opencode-setup" ]; then
-    run_cmd cp -r "$SCRIPT_DIR/skills/wp-opencode-setup" "$SKILLS_DIR/" || true
-  fi
+  # Note: wp-opencode-setup skill is NOT deployed to the VPS.
+  # It's for local agents helping users run setup.sh over SSH.
 else
   log "Phase 8.5: Skipping agent skills (--no-skills)"
+fi
+
+# --skills-only: done, exit early
+if [ "$SKILLS_ONLY" = true ]; then
+  echo ""
+  log "Skills installed to $SKILLS_DIR/"
+  if [ "$DRY_RUN" = false ]; then
+    ls -1 "$SKILLS_DIR" 2>/dev/null | while read -r skill; do
+      log "  - $skill"
+    done
+  fi
+  exit 0
 fi
 
 # ============================================================================
