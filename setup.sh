@@ -692,7 +692,10 @@ else
   log "OpenCode already installed: $(opencode --version 2>/dev/null || echo 'unknown')"
 fi
 
-# Generate opencode.json
+# Generate opencode.json (skip if already exists — safe for re-runs)
+if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/opencode.json" ]; then
+  log "opencode.json already exists — skipping (delete to regenerate)"
+else
 log "Generating opencode.json..."
 
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
@@ -751,21 +754,28 @@ else
   echo -e "$OPENCODE_JSON" > "$SITE_PATH/opencode.json"
 fi
 
+# End opencode.json existence guard
+fi
+
 # ============================================================================
 # Phase 8: AGENTS.md
 # ============================================================================
 
-log "Phase 8: Generating AGENTS.md..."
-
-if [ -f "$SCRIPT_DIR/workspace/AGENTS.md" ]; then
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
-  else
-    sed "s|{{SITE_PATH}}|$SITE_PATH|g" "$SCRIPT_DIR/workspace/AGENTS.md" > "$SITE_PATH/AGENTS.md"
-  fi
+# Generate AGENTS.md (skip if already exists — may have been customized)
+if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
+  log "Phase 8: AGENTS.md already exists — skipping (delete to regenerate)"
 else
-  # Inline fallback if template not available
-  write_file "$SITE_PATH/AGENTS.md" "# AGENTS.md
+  log "Phase 8: Generating AGENTS.md..."
+
+  if [ -f "$SCRIPT_DIR/workspace/AGENTS.md" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
+    else
+      sed "s|{{SITE_PATH}}|$SITE_PATH|g" "$SCRIPT_DIR/workspace/AGENTS.md" > "$SITE_PATH/AGENTS.md"
+    fi
+  else
+    # Inline fallback if template not available
+    write_file "$SITE_PATH/AGENTS.md" "# AGENTS.md
 
 ## WordPress Environment
 Site root: \`$SITE_PATH\`
@@ -776,31 +786,34 @@ WP-CLI: \`wp --allow-root --path=$SITE_PATH\`
 - Don't run destructive commands without asking
 - When in doubt, ask
 "
+  fi
+
+  # Remove Data Machine sections if DM not installed
+  if [ "$INSTALL_DATA_MACHINE" = false ]; then
+    if [ -f "$SITE_PATH/AGENTS.md" ]; then
+      log "Removing Data Machine references from AGENTS.md..."
+      awk '/^### Data Machine/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
+        "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
+      mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
+    fi
+  fi
+
+  # Remove multisite section for single-site installs
+  if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
+    IS_MULTISITE="${IS_MULTISITE:-no}"
+    if [ "$IS_MULTISITE" != "yes" ]; then
+      awk '/^### Multisite/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
+        "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
+      mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
+    fi
+  fi
 fi
 
-# Copy BOOTSTRAP.md if available
-if [ -f "$SCRIPT_DIR/workspace/BOOTSTRAP.md" ]; then
+# Copy BOOTSTRAP.md if not already present
+if [ -f "$SCRIPT_DIR/workspace/BOOTSTRAP.md" ] && [ ! -f "$SITE_PATH/BOOTSTRAP.md" ]; then
   run_cmd cp "$SCRIPT_DIR/workspace/BOOTSTRAP.md" "$SITE_PATH/BOOTSTRAP.md"
-fi
-
-# Remove Data Machine sections if DM not installed
-if [ "$INSTALL_DATA_MACHINE" = false ]; then
-  if [ -f "$SITE_PATH/AGENTS.md" ]; then
-    log "Removing Data Machine references from AGENTS.md..."
-    awk '/^### Data Machine/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
-      "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
-    mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
-  fi
-fi
-
-# Remove multisite section for single-site installs
-if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
-  IS_MULTISITE="${IS_MULTISITE:-no}"
-  if [ "$IS_MULTISITE" != "yes" ]; then
-    awk '/^### Multisite/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
-      "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
-    mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
-  fi
+elif [ -f "$SITE_PATH/BOOTSTRAP.md" ]; then
+  log "BOOTSTRAP.md already exists — skipping"
 fi
 
 # End of --skills-only guard (Phases 1-8)
@@ -848,6 +861,26 @@ if [ "$INSTALL_SKILLS" = true ]; then
 
   # Note: wp-opencode-setup skill is NOT deployed to the VPS.
   # It's for local agents helping users run setup.sh over SSH.
+
+  # Also copy skills to Kimaki's directory if Kimaki is the chat bridge.
+  # Kimaki overrides OpenCode's skill discovery paths to only look in its
+  # own bundled skills dir, so .opencode/skills/ alone isn't enough.
+  if [ "$DRY_RUN" = true ]; then
+    KIMAKI_SKILLS_DIR="/usr/lib/node_modules/kimaki/skills"
+    echo -e "${BLUE}[dry-run]${NC} Would copy skills to $KIMAKI_SKILLS_DIR/ (if Kimaki installed)"
+  elif command -v kimaki &> /dev/null; then
+    KIMAKI_SKILLS_DIR="$(npm root -g 2>/dev/null)/kimaki/skills"
+    if [ -d "$KIMAKI_SKILLS_DIR" ]; then
+      for skill_dir in "$SKILLS_DIR"/*/; do
+        skill_name=$(basename "$skill_dir")
+        if [ -f "$skill_dir/SKILL.md" ]; then
+          cp -r "$skill_dir" "$KIMAKI_SKILLS_DIR/$skill_name"
+        fi
+      done
+      log "Skills also copied to Kimaki: $KIMAKI_SKILLS_DIR/"
+      warn "Note: Kimaki upgrades (npm update -g kimaki) will remove these. Re-run --skills-only after upgrading."
+    fi
+  fi
 else
   log "Phase 8.5: Skipping agent skills (--no-skills)"
 fi
