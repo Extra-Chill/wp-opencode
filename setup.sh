@@ -137,7 +137,7 @@ OPTIONS:
   --no-data-machine  Skip Data Machine plugin (no persistent memory/scheduling)
   --no-chat          Skip chat bridge installation
   --chat <bridge>    Chat bridge to install (default: kimaki)
-                     Supported: kimaki (Discord)
+                     Supported: kimaki (Discord), telegram
   --skip-deps        Skip apt package installation
   --multisite        Convert to WordPress Multisite (subdirectory by default)
   --subdomain        Use subdomain multisite (requires wildcard DNS; use with --multisite)
@@ -157,7 +157,11 @@ ENVIRONMENT VARIABLES:
   DB_PASS            Database password (auto-generated if not set)
   OPENCODE_MODEL     Override default model (e.g., anthropic/claude-sonnet-4-20250514)
   OPENCODE_SMALL_MODEL  Override small model (e.g., anthropic/claude-haiku-4-5)
-  KIMAKI_BOT_TOKEN   Discord bot token (skip interactive setup)
+  KIMAKI_BOT_TOKEN          Discord bot token (skip interactive setup)
+  TELEGRAM_BOT_TOKEN        Telegram bot token from @BotFather (--chat telegram)
+  TELEGRAM_ALLOWED_USER_ID  Numeric Telegram user ID (--chat telegram)
+  OPENCODE_MODEL_PROVIDER   Default model provider for Telegram bot (default: opencode)
+  OPENCODE_MODEL_ID         Default model ID for Telegram bot (default: big-pickle)
 
 MIGRATION WORKFLOW:
   1. On old server: Export database and wp-content
@@ -949,9 +953,114 @@ WantedBy=multi-user.target"
       run_cmd systemctl enable kimaki
       ;;
 
+    telegram)
+      # Install @grinev/opencode-telegram-bot — richest feature set:
+      # interactive Q&A, session management, model switching, file attachments
+      if ! command -v opencode-telegram &> /dev/null || [ "$DRY_RUN" = true ]; then
+        run_cmd npm install -g @grinev/opencode-telegram-bot
+      else
+        log "opencode-telegram already installed: $(opencode-telegram --version 2>/dev/null | head -1)"
+      fi
+
+      # Find binaries
+      if [ "$DRY_RUN" = true ]; then
+        TELEGRAM_BIN="/usr/bin/opencode-telegram"
+        OPENCODE_BIN="/usr/bin/opencode"
+      else
+        TELEGRAM_BIN=$(which opencode-telegram 2>/dev/null || echo "/usr/bin/opencode-telegram")
+        OPENCODE_BIN=$(which opencode 2>/dev/null || echo "/usr/bin/opencode")
+      fi
+
+      # --- opencode-serve.service ---
+      # The Telegram bot connects to opencode's HTTP server (localhost:4096)
+      SERVE_ENV_LINES="Environment=HOME=$SERVICE_HOME"
+      SERVE_ENV_LINES="$SERVE_ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
+      if [ -n "$OPENCODE_MODEL" ]; then
+        SERVE_ENV_LINES="$SERVE_ENV_LINES\nEnvironment=OPENCODE_MODEL=$OPENCODE_MODEL"
+      fi
+
+      OPENCODE_SERVE_CONFIG="[Unit]
+Description=OpenCode Server (wp-opencode)
+After=network.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+WorkingDirectory=$SITE_PATH
+$(echo -e "$SERVE_ENV_LINES")
+ExecStart=$OPENCODE_BIN serve
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target"
+
+      write_file "/etc/systemd/system/opencode-serve.service" "$OPENCODE_SERVE_CONFIG"
+      run_cmd systemctl daemon-reload
+      run_cmd systemctl enable opencode-serve
+
+      # --- Write Telegram bot .env file ---
+      TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
+      run_cmd mkdir -p "$TELEGRAM_CONFIG_DIR"
+      if [ "$RUN_AS_ROOT" = false ]; then
+        run_cmd chown -R "$SERVICE_USER:$SERVICE_USER" "$TELEGRAM_CONFIG_DIR"
+      fi
+
+      TELEGRAM_ENV_CONTENT="TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID:-}
+OPENCODE_API_URL=http://localhost:4096
+OPENCODE_MODEL_PROVIDER=${OPENCODE_MODEL_PROVIDER:-opencode}
+OPENCODE_MODEL_ID=${OPENCODE_MODEL_ID:-big-pickle}
+LOG_LEVEL=info"
+
+      if [ "$DRY_RUN" = true ]; then
+        echo -e "${BLUE}[dry-run]${NC} Would write Telegram bot config to $TELEGRAM_CONFIG_DIR/.env"
+      else
+        echo "$TELEGRAM_ENV_CONTENT" > "$TELEGRAM_CONFIG_DIR/.env"
+        chmod 600 "$TELEGRAM_CONFIG_DIR/.env"
+        if [ "$RUN_AS_ROOT" = false ]; then
+          chown "$SERVICE_USER:$SERVICE_USER" "$TELEGRAM_CONFIG_DIR/.env"
+        fi
+      fi
+
+      # --- opencode-telegram.service ---
+      TELEGRAM_ENV_LINES="Environment=HOME=$SERVICE_HOME"
+      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
+      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=OPENCODE_API_URL=http://localhost:4096"
+      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=OPENCODE_MODEL_PROVIDER=${OPENCODE_MODEL_PROVIDER:-opencode}"
+      TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=OPENCODE_MODEL_ID=${OPENCODE_MODEL_ID:-big-pickle}"
+      if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+        TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
+      fi
+      if [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then
+        TELEGRAM_ENV_LINES="$TELEGRAM_ENV_LINES\nEnvironment=TELEGRAM_ALLOWED_USER_ID=$TELEGRAM_ALLOWED_USER_ID"
+      fi
+
+      TELEGRAM_SYSTEMD_CONFIG="[Unit]
+Description=OpenCode Telegram Bot (wp-opencode)
+After=network.target opencode-serve.service
+Requires=opencode-serve.service
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+WorkingDirectory=$SITE_PATH
+$(echo -e "$TELEGRAM_ENV_LINES")
+ExecStart=$TELEGRAM_BIN start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target"
+
+      write_file "/etc/systemd/system/opencode-telegram.service" "$TELEGRAM_SYSTEMD_CONFIG"
+      run_cmd systemctl daemon-reload
+      run_cmd systemctl enable opencode-telegram
+      ;;
+
     *)
       warn "Unknown chat bridge: $CHAT_BRIDGE"
-      warn "Supported bridges: kimaki"
+      warn "Supported bridges: kimaki, telegram"
       warn "Skipping chat bridge installation"
       ;;
   esac
@@ -1057,6 +1166,24 @@ if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
     echo "       Environment=KIMAKI_BOT_TOKEN=your-token-here"
     echo ""
     echo "  2. Start the agent:  systemctl start kimaki"
+  fi
+elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "telegram" ]; then
+  if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then
+    echo "  Telegram credentials configured. Start the agent:"
+    echo "    systemctl start opencode-serve"
+    echo "    systemctl start opencode-telegram"
+  else
+    echo "  1. Get your Telegram credentials:"
+    echo "     - Bot token: message @BotFather → /newbot"
+    echo "     - Your user ID: message @userinfobot"
+    echo ""
+    echo "  2. Add credentials to the bot config:"
+    echo "     Edit $SERVICE_HOME/.config/opencode-telegram-bot/.env"
+    echo "     Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_ID"
+    echo ""
+    echo "  3. Start the agent:"
+    echo "     systemctl start opencode-serve"
+    echo "     systemctl start opencode-telegram"
   fi
 else
   echo "  No chat bridge installed. Run OpenCode manually:"
