@@ -150,6 +150,15 @@ wp-opencode defaults to running the agent as `root`. On a single-purpose agent V
 
 If you have compliance requirements for OS-level user separation, use `--non-root` to create a dedicated `opencode` service user. Just know you'll need to handle permission issues for global package operations (e.g., add sudoers rules for npm).
 
+## Kimaki Configuration
+
+When Kimaki is the chat bridge (default), wp-opencode installs post-upgrade hooks that:
+
+- **Remove unwanted bundled skills** — Kimaki ships with skills for frameworks and tools that aren't relevant to WordPress agent workflows. The kill list (`kimaki/skills-kill-list.txt`) controls which skills are removed after each upgrade.
+- **Filter redundant context** — When Data Machine is installed, a plugin strips Kimaki's built-in memory injection and scheduling instructions from the agent context, since DM handles those concerns. Saves ~2,400 tokens per session.
+
+To customize the kill list, edit `kimaki/skills-kill-list.txt` before running setup, or edit `/opt/kimaki-config/skills-kill-list.txt` on the server after install.
+
 ## Requirements
 
 - Linux server (Ubuntu/Debian)
