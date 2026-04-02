@@ -14,23 +14,22 @@ WP-CLI: `wp --allow-root --path={{SITE_PATH}}`
 ### Data Machine (your brain)
 
 Your memory files (SOUL.md, USER.md, MEMORY.md) are auto-injected into every session.
-To discover their exact paths:
+
+Data Machine is fully discoverable via WP-CLI:
 ```bash
-wp datamachine agent paths --allow-root
+wp datamachine                          # See all command groups
+wp help datamachine <group>             # See subcommands in any group
+wp help datamachine <group> <command>   # Full usage, flags, and examples
+wp datamachine agent paths --allow-root # Discover your memory file paths
 ```
 
-CLI access:
+For source-level understanding, grep the local plugin:
 ```bash
-wp datamachine flows list --allow-root
-wp datamachine flows queue list <flow_id> --allow-root
-wp datamachine flows queue add <flow_id> "task" --allow-root
-wp datamachine jobs list --allow-root
-wp datamachine logs read pipeline --allow-root
+grep -r "pattern" wp-content/plugins/data-machine/
 ```
 
 ### Update MEMORY.md when you learn something new:
 ```bash
-# Find your MEMORY.md path
 wp datamachine agent paths --format=table --allow-root
 # Then read and update it carefully — preserve existing content, append new info
 ```
@@ -46,10 +45,13 @@ Without `--url`, commands default to the main site.
 
 ## Tools Available
 
-- `wp` — WordPress CLI (always use --allow-root)
+- `wp` — WordPress CLI (always use --allow-root). Fully discoverable: `wp help <command>`
+- `wp datamachine` — Data Machine CLI. Discoverable: `wp help datamachine <group>`
 - `gh` — GitHub CLI (if authenticated)
 - `git` — Version control
 - Standard Unix tools (curl, grep, sed, etc.)
+
+When in doubt about any command, use `--help` to discover usage. Don't memorize — discover.
 
 ## Git Discipline
 
