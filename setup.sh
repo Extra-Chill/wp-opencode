@@ -837,6 +837,11 @@ if [ -n "$OPENCODE_SMALL_MODEL" ]; then
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
 fi
 
+# Context filter plugin — only when DM handles memory/scheduling
+if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
+  OPENCODE_JSON="$OPENCODE_JSON,\n  \"plugin\": [\"/opt/kimaki-config/plugins/dm-context-filter.ts\"]"
+fi
+
 # Agent prompt config — always include so DM memory files are injected
 OPENCODE_JSON="$OPENCODE_JSON,\n  \"agent\": {"
 OPENCODE_JSON="$OPENCODE_JSON\n    \"build\": {"
@@ -1031,6 +1036,11 @@ if [ "$INSTALL_CHAT" = true ]; then
         log "Kimaki already installed: $(kimaki --version 2>/dev/null | head -1)"
       fi
 
+      # Copy Kimaki config (post-upgrade hooks, context filter plugin)
+      KIMAKI_CONFIG_DIR="/opt/kimaki-config"
+      run_cmd cp -r "$SCRIPT_DIR/kimaki" "$KIMAKI_CONFIG_DIR"
+      run_cmd chmod +x "$KIMAKI_CONFIG_DIR/post-upgrade.sh"
+
       # Build environment lines for systemd
       ENV_LINES="Environment=HOME=$SERVICE_HOME"
       ENV_LINES="$ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
@@ -1056,6 +1066,7 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
 $(echo -e "$ENV_LINES")
+ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
 ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique
 Restart=always
 RestartSec=10
