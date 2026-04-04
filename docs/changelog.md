@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.2.0] - 2026-04-04
 
 ### Added
 - Phase 4.5: Create Data Machine agent during setup with scaffolded SOUL.md and MEMORY.md (#15)
@@ -18,6 +18,30 @@
 - `wp-opencode-setup` skill for local agents assisting with installation
 - `README.md`, `LICENSE` (MIT), `VERSION`
 - `docs/changelog.md`
+- use 'wp datamachine agent paths' for file discovery instead of hardcoded paths
+- add Telegram bridge support via --chat telegram
+- add skills, README, LICENSE, VERSION, and --no-skills flag
+- add --multisite/--subdomain flags and docs/changelog
+
+### Changed
+- Register as Homeboy component with version pattern
+- Allow Data Machine workspace as external_directory in opencode.json
+- AGENTS.md: grep examples point to full WP install (plugins, themes, core)
+- AGENTS.md: grep tip applies to all plugins/themes, not just DM
+- AGENTS.md: discovery-first CLI guidance
+- Clone DM skill from data-machine-skills repo instead of bundling
+- Merge kimaki-config into wp-opencode
+- Default to root user, add --non-root flag
+- Remove hardcoded model defaults, let OpenCode use zen free models
+- Add USER.md injection, multisite support, small_model
+- Initial scaffolding: setup.sh, AGENTS.md template, BOOTSTRAP.md
+
+### Fixed
+- Fix Why Root section: acknowledge multi-agent VPSes
+- Fix skills discovery with Kimaki and make phases idempotent for safe re-runs
+- Fix skills discovery: use .opencode/skills/ path, add --skills-only flag
+- Fix OpenCode install: use official install script instead of npm
+- create service user before Phase 4 chown
 
 ## 0.1.0 - 2026-02-25
 
