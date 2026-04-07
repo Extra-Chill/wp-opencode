@@ -953,7 +953,7 @@ wp-content/uploads/datamachine-files/users/USER_ID/USER.md"
   # Build prompt from discovered files (layered: SITE.md → SOUL.md → MEMORY.md → USER.md)
   OPENCODE_PROMPT="{file:./AGENTS.md}"
   while IFS= read -r rel_path; do
-    OPENCODE_PROMPT="$OPENCODE_PROMPT\n{file:./${rel_path}}"
+    OPENCODE_PROMPT="$OPENCODE_PROMPT\\\\n{file:./${rel_path}}"
   done <<< "$DM_AGENT_FILES"
 else
   # Without Data Machine: just AGENTS.md
