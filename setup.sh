@@ -1189,16 +1189,25 @@ if [ "$INSTALL_CHAT" = true ]; then
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>KIMAKI_DATA_DIR</key>
+        <string>$KIMAKI_DATA_DIR</string>$(if [ -n "$KIMAKI_BOT_TOKEN" ]; then echo "
+        <key>KIMAKI_BOT_TOKEN</key>
+        <string>$KIMAKI_BOT_TOKEN</string>"; fi)
     </dict>
 </dict>
 </plist>"
 
         write_file "$KIMAKI_PLIST" "$KIMAKI_PLIST_CONTENT"
 
-        if [ "$DRY_RUN" = false ]; then
+        if [ "$DRY_RUN" = false ] && [ -n "$KIMAKI_BOT_TOKEN" ]; then
           launchctl bootout "gui/$(id -u)" "$KIMAKI_PLIST" 2>/dev/null || true
           launchctl bootstrap "gui/$(id -u)" "$KIMAKI_PLIST"
-          log "Kimaki launchd service installed and loaded"
+          log "Kimaki launchd service installed and started"
+        elif [ "$DRY_RUN" = false ]; then
+          log "KIMAKI_BOT_TOKEN not set — service not started"
+          log "Run onboarding first, then enable the service:"
+          log "  cd $SITE_PATH && kimaki"
+          log "  launchctl bootstrap gui/$(id -u) $KIMAKI_PLIST"
         fi
 
         log "Kimaki service: $KIMAKI_PLIST_LABEL"
@@ -1483,9 +1492,15 @@ echo ""
 if [ "$LOCAL_MODE" = true ]; then
   # Local mode next steps
   if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$PLATFORM" = "mac" ]; then
-    echo "  Kimaki (launchd service):"
-    echo "    Start:  launchctl kickstart gui/$(id -u)/com.extrachill.kimaki"
-    echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.extrachill.kimaki"
+    if [ -n "$KIMAKI_BOT_TOKEN" ]; then
+      echo "  Kimaki (launchd service):"
+      echo "    Start:  launchctl kickstart gui/$(id -u)/com.extrachill.kimaki"
+      echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.extrachill.kimaki"
+    else
+      echo "  Kimaki setup:"
+      echo "    1. Run onboarding:  cd $SITE_PATH && kimaki"
+      echo "    2. Enable service:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.kimaki.plist"
+    fi
     echo "    Logs:   tail -f $KIMAKI_DATA_DIR/kimaki.log"
     echo ""
   elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
