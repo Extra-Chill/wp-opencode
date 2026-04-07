@@ -424,7 +424,11 @@ OPENCODE_MODEL="${OPENCODE_MODEL:-}"
 OPENCODE_SMALL_MODEL="${OPENCODE_SMALL_MODEL:-}"
 
 # Service user configuration
-if [ "$RUN_AS_ROOT" = true ]; then
+if [ "$LOCAL_MODE" = true ]; then
+  SERVICE_USER="$(whoami)"
+  SERVICE_HOME="$HOME"
+  KIMAKI_DATA_DIR="$HOME/.kimaki"
+elif [ "$RUN_AS_ROOT" = true ]; then
   SERVICE_USER="root"
   SERVICE_HOME="/root"
   KIMAKI_DATA_DIR="/root/.kimaki"
