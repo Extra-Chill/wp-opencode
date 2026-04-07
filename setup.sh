@@ -975,9 +975,20 @@ fi
 if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
   # dm-context-filter: strips redundant Kimaki context when DM manages it
   # dm-agent-sync: dynamically registers all DM agents in the agent switcher
+  if [ "$LOCAL_MODE" = true ]; then
+    KIMAKI_PLUGINS_DIR="$(npm root -g 2>/dev/null)/kimaki/plugins"
+    # Copy plugins from wp-opencode repo to Kimaki's npm directory
+    if [ "$DRY_RUN" = false ] && [ -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
+      mkdir -p "$KIMAKI_PLUGINS_DIR"
+      cp "$SCRIPT_DIR/kimaki/plugins/dm-context-filter.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
+      cp "$SCRIPT_DIR/kimaki/plugins/dm-agent-sync.ts" "$KIMAKI_PLUGINS_DIR/" 2>/dev/null || true
+    fi
+  else
+    KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
+  fi
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"plugin\": ["
-  OPENCODE_JSON="$OPENCODE_JSON\n    \"/opt/kimaki-config/plugins/dm-context-filter.ts\","
-  OPENCODE_JSON="$OPENCODE_JSON\n    \"/opt/kimaki-config/plugins/dm-agent-sync.ts\""
+  OPENCODE_JSON="$OPENCODE_JSON\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
+  OPENCODE_JSON="$OPENCODE_JSON\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\""
   OPENCODE_JSON="$OPENCODE_JSON\n  ]"
 fi
 
