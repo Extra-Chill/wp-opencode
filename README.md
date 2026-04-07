@@ -113,6 +113,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **WordPress** | Site platform, WP-CLI access | No |
 | **[OpenCode](https://opencode.ai)** | AI coding agent runtime | No |
 | **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | `--no-data-machine` |
+| **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** | Workspace management, GitHub integration, git operations | Installed with Data Machine |
 | **[Kimaki](https://kimaki.xyz)** or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord or Telegram) | `--no-chat` |
 | **[WordPress agent skills](https://github.com/WordPress/agent-skills)** | WP development patterns (cloned at install) | `--no-skills` |
 
@@ -140,11 +141,15 @@ Data Machine exposes all agent functionality through WordPress core's [Abilities
 - Task queues for multi-phase projects
 - Agent Ping webhooks for fleet coordination
 - AI tools (content generation, publishing, search)
+- Managed workspace for git repos (`/var/lib/datamachine/workspace/`)
+- GitHub integration (issues, PRs, repos)
+- Policy-controlled git operations (add, commit, push with allowlists)
 
 **Without DM (`--no-data-machine`):**
 - Agent responds when prompted, no autonomous operation
 - No persistent memory between sessions
 - No self-scheduling
+- No managed workspace or GitHub integration
 - Good for development-only setups where you just need a coding assistant
 
 ## Why Root?
@@ -200,6 +205,7 @@ Credentials are stored in `~/.config/opencode-telegram-bot/.env` (chmod 600). Yo
 
 - **[wp-openclaw](https://github.com/Sarai-Chinwag/wp-openclaw)** — Same concept, uses [OpenClaw](https://github.com/openclaw/openclaw) as an all-in-one agent runtime. OpenClaw manages its own memory, skills, and channels. Better for standalone autonomous agents that need to self-manage everything. wp-opencode is the composable alternative — separate tools, each doing one thing.
 - **[Data Machine](https://github.com/Extra-Chill/data-machine)** — The memory and scheduling layer. Works with any AI agent framework, not just OpenCode.
+- **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** — Developer tools extension for Data Machine. Workspace management, GitHub integration, git operations.
 
 ## Contributing
 

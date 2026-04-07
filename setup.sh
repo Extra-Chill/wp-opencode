@@ -491,11 +491,27 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
   fi
   run_cmd chown -R www-data:www-data "$DM_PLUGIN_DIR"
 
-  # Create workspace directory for agent file operations
-  run_cmd mkdir -p /var/lib/datamachine/workspace
-  if [ "$RUN_AS_ROOT" = false ]; then
-    run_cmd chown -R "$SERVICE_USER:www-data" /var/lib/datamachine/workspace
+  # Install Data Machine Code (developer tools extension: workspace, GitHub, git)
+  DMC_PLUGIN_DIR="$SITE_PATH/wp-content/plugins/data-machine-code"
+
+  if [ ! -d "$DMC_PLUGIN_DIR" ] || [ "$DRY_RUN" = true ]; then
+    log "Installing Data Machine Code (developer tools)..."
+    run_cmd git clone https://github.com/Extra-Chill/data-machine-code.git "$DMC_PLUGIN_DIR"
+    if [ -f "$DMC_PLUGIN_DIR/composer.json" ] || [ "$DRY_RUN" = true ]; then
+      run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer install \
+        --no-dev --no-interaction --working-dir="$DMC_PLUGIN_DIR" || \
+        warn "Composer failed, some Data Machine Code features may not work"
+    fi
   fi
+
+  if [ "$MULTISITE" = true ]; then
+    run_cmd wp plugin activate data-machine-code --allow-root --path="$SITE_PATH" --url="$SITE_DOMAIN" || \
+      warn "Data Machine Code may already be active"
+  else
+    run_cmd wp plugin activate data-machine-code --allow-root --path="$SITE_PATH" || \
+      warn "Data Machine Code may already be active"
+  fi
+  run_cmd chown -R www-data:www-data "$DMC_PLUGIN_DIR"
 else
   log "Phase 4: Skipping Data Machine (--no-data-machine)"
 fi
@@ -852,7 +868,9 @@ OPENCODE_JSON="$OPENCODE_JSON\n      \"prompt\": \"${OPENCODE_PROMPT}\""
 OPENCODE_JSON="$OPENCODE_JSON\n    }"
 OPENCODE_JSON="$OPENCODE_JSON\n  }"
 
-# Permission: allow Data Machine workspace as external directory
+# Permission: allow Data Machine Code workspace as external directory.
+# data-machine-code creates /var/lib/datamachine/workspace/ lazily on first use.
+# OpenCode still needs an allowlist entry to access paths outside the project root.
 if [ "$INSTALL_DATA_MACHINE" = true ]; then
   OPENCODE_JSON="$OPENCODE_JSON,\n  \"permission\": {"
   OPENCODE_JSON="$OPENCODE_JSON\n    \"external_directory\": {"
@@ -1260,7 +1278,8 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
     echo "  Agent:       $AGENT_SLUG"
   fi
   echo "  Discover:    wp datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} --allow-root"
-  echo "  Workspace:   /var/lib/datamachine/workspace/"
+  echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
+  echo "  Workspace:   /var/lib/datamachine/workspace/ (created on first use)"
   echo ""
 fi
 echo "Agent:"

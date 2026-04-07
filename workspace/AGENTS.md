@@ -36,6 +36,19 @@ wp datamachine agent paths --format=table --allow-root
 # Then read and update it carefully — preserve existing content, append new info
 ```
 
+### Workspace
+
+Data Machine Code provides a managed workspace at `/var/lib/datamachine/workspace/` for cloning and working with git repositories. The directory is created on first use.
+
+```bash
+wp datamachine-code workspace list --allow-root          # List cloned repos
+wp datamachine-code workspace clone <url> --allow-root   # Clone a repo
+wp datamachine-code workspace path --allow-root          # Show workspace path
+wp help datamachine-code workspace                       # Full usage
+```
+
+You can also work with workspace repos directly via the filesystem — the workspace path is allowed as an external directory in opencode.json.
+
 ### Multisite
 
 If this is a WordPress multisite, use `--url` to target specific sites:
