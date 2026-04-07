@@ -5,7 +5,7 @@ WP-CLI: `wp {{WP_FLAGS}} --path={{SITE_PATH}}`
 
 ### Data Machine
 
-Your memory files are discoverable: `wp help datamachine`
+Your memory files are discoverable: `wp datamachine agent paths {{WP_FLAGS}}`
 Update MEMORY.md when you learn something persistent — read it first, append new info.
 
 ### WordPress Source
