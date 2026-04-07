@@ -1125,9 +1125,68 @@ if [ "$INSTALL_CHAT" = true ]; then
         log "Kimaki already installed: $(kimaki --version 2>/dev/null | head -1)"
       fi
 
-      if [ "$LOCAL_MODE" = true ]; then
-        # Local mode: install Kimaki but skip systemd service.
-        # User runs kimaki manually or via tmux/launchd.
+      if [ "$LOCAL_MODE" = true ] && [ "$PLATFORM" = "mac" ]; then
+        # macOS: create a launchd plist for persistent Kimaki service
+        KIMAKI_PLIST_LABEL="com.extrachill.kimaki"
+        KIMAKI_PLIST_DIR="$HOME/Library/LaunchAgents"
+        KIMAKI_PLIST="$KIMAKI_PLIST_DIR/$KIMAKI_PLIST_LABEL.plist"
+
+        if [ "$DRY_RUN" = true ]; then
+          KIMAKI_BIN="/opt/homebrew/bin/kimaki"
+        else
+          KIMAKI_BIN=$(which kimaki 2>/dev/null || echo "/opt/homebrew/bin/kimaki")
+        fi
+
+        run_cmd mkdir -p "$KIMAKI_DATA_DIR"
+        run_cmd mkdir -p "$KIMAKI_PLIST_DIR"
+
+        KIMAKI_PLIST_CONTENT="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+    <key>Label</key>
+    <string>$KIMAKI_PLIST_LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$KIMAKI_BIN</string>
+        <string>--data-dir</string>
+        <string>$KIMAKI_DATA_DIR</string>
+        <string>--auto-restart</string>
+        <string>--no-critique</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$SITE_PATH</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$KIMAKI_DATA_DIR/kimaki.log</string>
+    <key>StandardErrorPath</key>
+    <string>$KIMAKI_DATA_DIR/kimaki.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>"
+
+        write_file "$KIMAKI_PLIST" "$KIMAKI_PLIST_CONTENT"
+
+        if [ "$DRY_RUN" = false ]; then
+          launchctl bootout "gui/$(id -u)" "$KIMAKI_PLIST" 2>/dev/null || true
+          launchctl bootstrap "gui/$(id -u)" "$KIMAKI_PLIST"
+          log "Kimaki launchd service installed and loaded"
+        fi
+
+        log "Kimaki service: $KIMAKI_PLIST_LABEL"
+        log "  Start:  launchctl kickstart gui/$(id -u)/$KIMAKI_PLIST_LABEL"
+        log "  Stop:   launchctl kill SIGTERM gui/$(id -u)/$KIMAKI_PLIST_LABEL"
+        log "  Logs:   tail -f $KIMAKI_DATA_DIR/kimaki.log"
+
+      elif [ "$LOCAL_MODE" = true ]; then
+        # Non-macOS local mode: no service manager, run manually
         log "Local mode: Kimaki installed. Run manually with:"
         log "  cd $SITE_PATH && kimaki"
       else
@@ -1402,7 +1461,13 @@ echo "=============================================="
 echo ""
 if [ "$LOCAL_MODE" = true ]; then
   # Local mode next steps
-  if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
+  if [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ] && [ "$PLATFORM" = "mac" ]; then
+    echo "  Kimaki (launchd service):"
+    echo "    Start:  launchctl kickstart gui/$(id -u)/com.extrachill.kimaki"
+    echo "    Stop:   launchctl kill SIGTERM gui/$(id -u)/com.extrachill.kimaki"
+    echo "    Logs:   tail -f $KIMAKI_DATA_DIR/kimaki.log"
+    echo ""
+  elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
     echo "  Start your agent:"
     echo "    cd $SITE_PATH && kimaki"
     echo ""
