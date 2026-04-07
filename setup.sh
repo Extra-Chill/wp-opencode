@@ -277,11 +277,6 @@ HELP
   exit 0
 fi
 
-# Check root (not required in local mode)
-if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$EUID" -ne 0 ]; then
-  error "Please run as root (sudo ./setup.sh). Use --local for local installs."
-fi
-
 # Detect OS and platform
 PLATFORM="linux"
 case "$(uname -s)" in
@@ -302,6 +297,16 @@ case "$(uname -s)" in
   *) error "Unsupported OS: $(uname -s)" ;;
 esac
 
+# Auto-enable local mode on macOS
+if [ "$PLATFORM" = "mac" ] && [ "$LOCAL_MODE" = false ]; then
+  LOCAL_MODE=true
+  MODE="existing"
+  SKIP_DEPS=true
+  SKIP_SSL=true
+  RUN_AS_ROOT=false
+  log "macOS detected — enabling local mode automatically"
+fi
+
 # Validate Linux distro (only matters for fresh/VPS installs)
 if [ "$PLATFORM" = "linux" ] && [ "$LOCAL_MODE" = false ]; then
   if [[ "$OS" != "ubuntu" && "$OS" != "debian" ]]; then
@@ -314,14 +319,9 @@ if [ "$PLATFORM" = "linux" ] && [ "$LOCAL_MODE" = false ]; then
   fi
 fi
 
-# Auto-enable local mode on macOS
-if [ "$PLATFORM" = "mac" ] && [ "$LOCAL_MODE" = false ]; then
-  LOCAL_MODE=true
-  MODE="existing"
-  SKIP_DEPS=true
-  SKIP_SSL=true
-  RUN_AS_ROOT=false
-  log "macOS detected — enabling local mode automatically"
+# Check root (not required in local mode)
+if [ "$DRY_RUN" = false ] && [ "$LOCAL_MODE" = false ] && [ "$EUID" -ne 0 ]; then
+  error "Please run as root (sudo ./setup.sh). Use --local for local installs."
 fi
 
 # WP-CLI flag: --allow-root on VPS, omit on local
