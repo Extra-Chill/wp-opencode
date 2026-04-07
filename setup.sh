@@ -926,9 +926,11 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
     if [ -n "$AGENT_SLUG" ]; then
       AGENT_FLAG="--agent=$AGENT_SLUG"
     fi
-    DM_PATHS_JSON=$(wp datamachine agent paths --format=json $AGENT_FLAG $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null)
+    DM_PATHS_RAW=$(wp datamachine agent paths --format=json $AGENT_FLAG $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null)
+    # SQLite translation layer may emit HTML error noise to stdout — extract only the JSON object
+    DM_PATHS_JSON=$(echo "$DM_PATHS_RAW" | sed -n '/^{/,/^}/p')
     if [ -z "$DM_PATHS_JSON" ]; then
-      error "'wp datamachine agent paths' returned empty — is Data Machine active and agent created?"
+      error "'wp datamachine agent paths' returned no JSON — is Data Machine active and agent created?"
     fi
     # Extract relative_files array from JSON — these are the correct layered paths
     DM_AGENT_FILES=$(echo "$DM_PATHS_JSON" | python3 -c "
