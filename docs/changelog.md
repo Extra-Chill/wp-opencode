@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1] - 2026-04-07
+
+### Changed
+- Remove reference to private repo from README
+- Update README for local/macOS support and new architecture
+- Extract helper functions to reduce repetition
+- Add --local flag for macOS and local WordPress installs
+- Install data-machine-code alongside Data Machine core
+- Document Telegram bridge support in README — matches setup.sh capabilities
+- Add Abilities API section to README — connect Data Machine to WordPress core
+
 ## [0.2.0] - 2026-04-04
 
 ### Added
