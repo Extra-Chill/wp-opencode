@@ -1007,7 +1007,7 @@ else
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
     else
-      sed "s|{{SITE_PATH}}|$SITE_PATH|g" "$SCRIPT_DIR/workspace/AGENTS.md" > "$SITE_PATH/AGENTS.md"
+      sed -e "s|{{SITE_PATH}}|$SITE_PATH|g" -e "s|{{WP_FLAGS}}|$WP_ROOT_FLAG|g" "$SCRIPT_DIR/workspace/AGENTS.md" > "$SITE_PATH/AGENTS.md"
     fi
   else
     # Inline fallback if template not available
@@ -1028,7 +1028,8 @@ WP-CLI: \`wp $WP_ROOT_FLAG --path=$SITE_PATH\`
   if [ "$INSTALL_DATA_MACHINE" = false ]; then
     if [ -f "$SITE_PATH/AGENTS.md" ]; then
       log "Removing Data Machine references from AGENTS.md..."
-      awk '/^### Data Machine/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
+      # Strip ### Data Machine and ### Workspace (both are DM features)
+      awk '/^### (Data Machine|Workspace)/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
         "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
       mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
     fi
