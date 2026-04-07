@@ -49,7 +49,7 @@ write_file() {
 #        wp_cmd plugin activate data-machine
 wp_cmd() {
   # shellcheck disable=SC2086
-  run_cmd wp "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
+  run_cmd $WP_CMD "$@" $WP_ROOT_FLAG --path="$SITE_PATH"
 }
 
 # Activate a plugin, handling multisite --url= branching.
@@ -263,6 +263,9 @@ ENVIRONMENT VARIABLES:
   TELEGRAM_ALLOWED_USER_ID  Numeric Telegram user ID (--chat telegram)
   OPENCODE_MODEL_PROVIDER   Default model provider for Telegram bot (default: opencode)
   OPENCODE_MODEL_ID         Default model ID for Telegram bot (default: big-pickle)
+  EXTRA_PLUGINS      Space-separated slug:url pairs for additional plugins
+  MCP_SERVERS        JSON object merged into opencode.json .mcp key (requires jq)
+  WP_CMD             Override WP-CLI command (default: wp; e.g., "studio wp")
 
 MIGRATION WORKFLOW:
   1. On old server: Export database and wp-content
@@ -331,6 +334,9 @@ else
   WP_ROOT_FLAG="--allow-root"
 fi
 
+# WP-CLI command: override with WP_CMD="studio wp" for WordPress Studio, etc.
+WP_CMD="${WP_CMD:-wp}"
+
 log "Detected OS: $OS (platform: $PLATFORM, local: $LOCAL_MODE)"
 log "Mode: $MODE"
 log "Chat bridge: $CHAT_BRIDGE"
@@ -391,16 +397,16 @@ if [ "$MODE" = "existing" ]; then
   if [ "$DRY_RUN" = true ]; then
     SITE_DOMAIN="${SITE_DOMAIN:-$(basename "$SITE_PATH")}"
   else
-    SITE_DOMAIN=$(cd "$SITE_PATH" && wp option get siteurl $WP_ROOT_FLAG 2>/dev/null | sed 's|https\?://||' || basename "$SITE_PATH")
+    SITE_DOMAIN=$(cd "$SITE_PATH" && $WP_CMD option get siteurl $WP_ROOT_FLAG 2>/dev/null | sed 's|https\?://||' || basename "$SITE_PATH")
   fi
   log "Existing WordPress at: $SITE_PATH ($SITE_DOMAIN)"
 
   # Detect if existing WP is multisite
   if [ "$DRY_RUN" = false ]; then
-    IS_EXISTING_MULTISITE=$(cd "$SITE_PATH" && wp eval 'echo is_multisite() ? "yes" : "no";' $WP_ROOT_FLAG 2>/dev/null || echo "no")
+    IS_EXISTING_MULTISITE=$(cd "$SITE_PATH" && $WP_CMD eval 'echo is_multisite() ? "yes" : "no";' $WP_ROOT_FLAG 2>/dev/null || echo "no")
     if [ "$IS_EXISTING_MULTISITE" = "yes" ]; then
       MULTISITE=true
-      IS_SUBDOMAIN=$(cd "$SITE_PATH" && wp eval 'echo is_subdomain_install() ? "yes" : "no";' $WP_ROOT_FLAG 2>/dev/null || echo "no")
+      IS_SUBDOMAIN=$(cd "$SITE_PATH" && $WP_CMD eval 'echo is_subdomain_install() ? "yes" : "no";' $WP_ROOT_FLAG 2>/dev/null || echo "no")
       if [ "$IS_SUBDOMAIN" = "yes" ]; then
         MULTISITE_TYPE="subdomain"
       fi
@@ -547,10 +553,10 @@ if [ "$MODE" = "fresh" ]; then
   fi
 
   if [ ! -f wp-config.php ] || [ "$DRY_RUN" = true ]; then
-    run_cmd wp core download --allow-root
-    run_cmd wp config create --allow-root \
+    run_cmd $WP_CMD core download --allow-root
+    run_cmd $WP_CMD config create --allow-root \
       --dbname="$DB_NAME" --dbuser="$DB_USER" --dbpass="$DB_PASS" --dbhost="localhost"
-    run_cmd wp core install --allow-root \
+    run_cmd $WP_CMD core install --allow-root \
       --url="https://$SITE_DOMAIN" --title="My Site" \
       --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASS" \
       --admin_email="$WP_ADMIN_EMAIL"
@@ -571,9 +577,9 @@ if [ "$MULTISITE" = true ] && [ "$MODE" = "fresh" ]; then
   log "Phase 3.5: Converting to WordPress Multisite ($MULTISITE_TYPE)..."
 
   if [ "$MULTISITE_TYPE" = "subdomain" ]; then
-    run_cmd wp core multisite-convert --subdomains --allow-root --path="$SITE_PATH"
+    run_cmd $WP_CMD core multisite-convert --subdomains --allow-root --path="$SITE_PATH"
   else
-    run_cmd wp core multisite-convert --allow-root --path="$SITE_PATH"
+    run_cmd $WP_CMD core multisite-convert --allow-root --path="$SITE_PATH"
   fi
 
   log "Multisite conversion complete"
@@ -604,7 +610,7 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
 
   if [ "$MULTISITE" = true ]; then
     log "Data Machine activated on main site. Activate on subsites with:"
-    log "  wp plugin activate data-machine --url=subsite.$SITE_DOMAIN $WP_ROOT_FLAG"
+    log "  $WP_CMD plugin activate data-machine --url=subsite.$SITE_DOMAIN $WP_ROOT_FLAG"
   fi
 
   log "Installing Data Machine Code (developer tools)..."
@@ -621,7 +627,7 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
       log "DATAMACHINE_WORKSPACE_PATH already defined in wp-config.php"
     fi
   elif [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} wp config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
+    echo -e "${BLUE}[dry-run]${NC} $WP_CMD config set DATAMACHINE_WORKSPACE_PATH $DM_WORKSPACE_DIR --type=constant"
   fi
 else
   log "Phase 4: Skipping Data Machine (--no-data-machine)"
@@ -649,11 +655,11 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/wp-config.php" ]; then
     # Get site title for the agent display name
     # shellcheck disable=SC2086
-    AGENT_NAME=$(wp option get blogname $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")
+    AGENT_NAME=$($WP_CMD option get blogname $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "$AGENT_SLUG")
 
     # Check if agent already exists (idempotent for re-runs)
     # shellcheck disable=SC2086
-    EXISTING_AGENT=$(wp datamachine agents show "$AGENT_SLUG" --format=json $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "")
+    EXISTING_AGENT=$($WP_CMD datamachine agents show "$AGENT_SLUG" --format=json $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null || echo "")
 
     if [ -z "$EXISTING_AGENT" ]; then
       log "Creating agent: $AGENT_SLUG ($AGENT_NAME)"
@@ -683,7 +689,7 @@ Be genuinely helpful. Skip filler. Be resourceful — read the file, check the c
 I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent memory, scheduling, and AI tools."
 
       # shellcheck disable=SC2086
-      echo "$SOUL_CONTENT" | wp datamachine agent files write SOUL.md \
+      echo "$SOUL_CONTENT" | $WP_CMD datamachine agent files write SOUL.md \
         --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
 
       # Scaffold MEMORY.md — empty starter
@@ -694,7 +700,7 @@ I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent me
 - Agent created during wp-opencode setup on $(date +%Y-%m-%d)"
 
       # shellcheck disable=SC2086
-      echo "$MEMORY_CONTENT" | wp datamachine agent files write MEMORY.md \
+      echo "$MEMORY_CONTENT" | $WP_CMD datamachine agent files write MEMORY.md \
         --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
 
       log "Agent '$AGENT_SLUG' created with SOUL.md and MEMORY.md"
@@ -706,6 +712,23 @@ I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent me
   fi
 else
   AGENT_SLUG=""
+fi
+
+# ============================================================================
+# Phase 4.6: Extra Plugins (caller-provided)
+# ============================================================================
+
+if [ -n "${EXTRA_PLUGINS:-}" ]; then
+  log "Phase 4.6: Installing extra plugins..."
+  for entry in $EXTRA_PLUGINS; do
+    slug="${entry%%:*}"
+    url="${entry#*:}"
+    if [ -z "$slug" ] || [ -z "$url" ]; then
+      warn "Skipping malformed EXTRA_PLUGINS entry: $entry"
+      continue
+    fi
+    install_plugin "$slug" "$url"
+  done
 fi
 
 # ============================================================================
@@ -926,11 +949,11 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
     if [ -n "$AGENT_SLUG" ]; then
       AGENT_FLAG="--agent=$AGENT_SLUG"
     fi
-    DM_PATHS_RAW=$(wp datamachine agent paths --format=json $AGENT_FLAG $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null)
+    DM_PATHS_RAW=$($WP_CMD datamachine agent paths --format=json $AGENT_FLAG $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null)
     # SQLite translation layer may emit HTML error noise to stdout — extract only the JSON object
     DM_PATHS_JSON=$(echo "$DM_PATHS_RAW" | sed -n '/^{/,/^}/p')
     if [ -z "$DM_PATHS_JSON" ]; then
-      error "'wp datamachine agent paths' returned no JSON — is Data Machine active and agent created?"
+      error "'$WP_CMD datamachine agent paths' returned no JSON — is Data Machine active and agent created?"
     fi
     # Extract relative_files array from JSON — these are the correct layered paths
     DM_AGENT_FILES=$(echo "$DM_PATHS_JSON" | python3 -c "
@@ -939,7 +962,7 @@ data = json.load(sys.stdin)
 for f in data.get('relative_files', []):
     print(f)
 ")
-    log "Agent files discovered via 'wp datamachine agent paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
+    log "Agent files discovered via '$WP_CMD datamachine agent paths${AGENT_FLAG:+ ($AGENT_FLAG)}'"
   else
     # Dry-run: can't query WP, use placeholder paths with derived slug
     DM_DRY_SLUG="${AGENT_SLUG:-AGENT_SLUG}"
@@ -1027,6 +1050,19 @@ fi
 # End opencode.json existence guard
 fi
 
+# Merge caller-provided MCP servers (always runs — additive to existing file)
+if [ -n "${MCP_SERVERS:-}" ] && [ -f "$SITE_PATH/opencode.json" ]; then
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would merge MCP_SERVERS into opencode.json"
+  else
+    command -v jq &>/dev/null || error "MCP_SERVERS requires jq"
+    log "Merging MCP servers into opencode.json..."
+    jq --argjson mcp "$MCP_SERVERS" '.mcp = $mcp' "$SITE_PATH/opencode.json" \
+      > "$SITE_PATH/opencode.json.tmp" \
+      && mv "$SITE_PATH/opencode.json.tmp" "$SITE_PATH/opencode.json"
+  fi
+fi
+
 # ============================================================================
 # Phase 8: AGENTS.md
 # ============================================================================
@@ -1049,7 +1085,7 @@ else
 
 ## WordPress Environment
 Site root: \`$SITE_PATH\`
-WP-CLI: \`wp $WP_ROOT_FLAG --path=$SITE_PATH\`
+WP-CLI: \`$WP_CMD $WP_ROOT_FLAG --path=$SITE_PATH\`
 
 ## Safety
 - Don't leak private data
@@ -1448,7 +1484,7 @@ if [ "$INSTALL_DATA_MACHINE" = true ]; then
   if [ -n "$AGENT_SLUG" ]; then
     echo "  Agent:       $AGENT_SLUG"
   fi
-  echo "  Discover:    wp datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
+  echo "  Discover:    $WP_CMD datamachine agent paths${AGENT_SLUG:+ --agent=$AGENT_SLUG} $WP_ROOT_FLAG"
   echo "  Code tools:  data-machine-code (workspace, GitHub, git)"
   echo "  Workspace:   $DM_WORKSPACE_DIR (created on first use)"
   echo ""
@@ -1526,7 +1562,7 @@ if [ "$LOCAL_MODE" = true ]; then
   if [ "$INSTALL_DATA_MACHINE" = true ]; then
     echo "  Configure Data Machine:"
     echo "    - Set AI provider API keys in WP Admin → Data Machine → Settings"
-    echo "    - Or via WP-CLI: wp datamachine settings --path=$SITE_PATH"
+    echo "    - Or via WP-CLI: $WP_CMD datamachine settings --path=$SITE_PATH"
     echo ""
   fi
 elif [ "$INSTALL_CHAT" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
@@ -1574,7 +1610,7 @@ echo ""
 if [ "$LOCAL_MODE" = false ] && [ "$INSTALL_DATA_MACHINE" = true ]; then
   echo "  Configure Data Machine:"
   echo "    - Set AI provider API keys in WP Admin → Data Machine → Settings"
-  echo "    - Or via WP-CLI: wp datamachine settings --allow-root"
+  echo "    - Or via WP-CLI: $WP_CMD datamachine settings --allow-root"
   echo ""
 fi
 echo "  Your agent will read BOOTSTRAP.md on first run."
