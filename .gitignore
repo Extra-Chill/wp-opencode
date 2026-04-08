@@ -15,4 +15,4 @@ Thumbs.db
 node_modules/
 
 # Credentials
-# Credentials stored at ~/.wp-opencode-credentials on the VPS
+# Credentials stored at ~/.wp-coding-agents-credentials on the VPS

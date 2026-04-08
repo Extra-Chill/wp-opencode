@@ -1,7 +1,7 @@
 {
   "auto_cleanup": false,
   "changelog_target": "docs/changelog.md",
-  "id": "wp-opencode",
+  "id": "wp-coding-agents",
   "remote_path": "",
   "version_targets": [
     {

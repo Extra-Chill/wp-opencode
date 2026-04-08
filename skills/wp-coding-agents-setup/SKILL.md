@@ -1,14 +1,14 @@
 ---
-name: wp-opencode-setup
-description: "Install wp-opencode on a VPS or local machine. Use this skill from your LOCAL machine to deploy a self-contained WordPress + OpenCode environment on a remote server, or to set up a local agent on your own machine."
+name: wp-coding-agents-setup
+description: "Install wp-coding-agents on a VPS or local machine. Use this skill from your LOCAL machine to deploy a self-contained WordPress + coding agent environment on a remote server, or to set up a local agent on your own machine."
 compatibility: "For VPS: requires SSH access, Ubuntu/Debian recommended. For local: requires an existing WordPress install (WordPress Studio, MAMP, manual, etc.) and Node.js."
 ---
 
-# WP-OpenCode Setup Skill
+# WP Coding Agents Setup Skill
 
-**Purpose:** Help a user install wp-opencode on a remote VPS or their local machine.
+**Purpose:** Help a user install wp-coding-agents on a remote VPS or their local machine.
 
-This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with installation. Once OpenCode is running on the VPS with a chat bridge (e.g., Kimaki for Discord, Telegram bot), this skill is no longer needed — the VPS agent takes over. For local installs, the agent runs directly on the user's machine.
+This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with installation. Once the coding agent is running on the VPS with a chat bridge (e.g., Kimaki for Discord, cc-connect, Telegram bot), this skill is no longer needed — the VPS agent takes over. For local installs, the agent runs directly on the user's machine.
 
 ---
 
@@ -22,26 +22,36 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 
 **Options:**
 - **Fresh VPS install** — New VPS, new WordPress site
-- **Existing WordPress (VPS)** — Site already running on a server, just add OpenCode
+- **Existing WordPress (VPS)** — Site already running on a server, just add a coding agent
 - **Local install** — Use an existing WordPress on your own machine (WordPress Studio, MAMP, etc.)
 - **Migration** — Site exists elsewhere, moving to this VPS
 
-### Question 2: Autonomous Operation
+### Question 2: Coding Agent Runtime
+
+> "Which coding agent do you want to use?
+>
+> - **OpenCode** — Open-source, supports zen free models, uses opencode.json config
+> - **Claude Code** — Anthropic's CLI agent, uses CLAUDE.md config with @ includes
+>
+> If both are installed, the script auto-detects. You can also specify with `--runtime`."
+
+### Question 3: Autonomous Operation
 
 > "Do you want **autonomous operation** capabilities? This includes Data Machine — a self-scheduling system that lets your agent set reminders, queue tasks, and operate 24/7 without human intervention.
 >
 > - **Yes (recommended for content sites)** — Full autonomy, self-scheduling, proactive operation
 > - **No (simpler setup)** — Agent responds when asked, no self-scheduling overhead"
 
-### Question 3: Chat Bridge
+### Question 4: Chat Bridge
 
 > "How do you want to communicate with your agent?
 >
-> - **Discord (via Kimaki)** — Default. Your agent gets a Discord bot.
-> - **Telegram** — Your agent gets a Telegram bot (via @grinev/opencode-telegram-bot).
-> - **No chat bridge** — Run OpenCode manually via SSH or terminal when needed."
+> - **Discord (via Kimaki)** — Default for OpenCode. Your agent gets a Discord bot.
+> - **cc-connect** — Default for Claude Code. Multi-platform chat bridge.
+> - **Telegram** — Your agent gets a Telegram bot (via @grinev/opencode-telegram-bot). OpenCode only.
+> - **No chat bridge** — Run the agent manually via SSH or terminal when needed."
 
-### Question 4: Server/Local Details
+### Question 5: Server/Local Details
 
 **For VPS installs:**
 
@@ -54,7 +64,7 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 
 > "Where is WordPress installed on your machine? (e.g., `~/Studio/my-wordpress-website`, `/Applications/MAMP/htdocs/wordpress`)"
 
-### Question 5: For Existing WordPress
+### Question 6: For Existing WordPress
 
 If they chose existing WordPress (VPS or local):
 
@@ -68,16 +78,20 @@ Based on their answers, construct the appropriate command:
 
 | Scenario | Command |
 |----------|---------|
-| Fresh VPS + DM + Discord | `SITE_DOMAIN=example.com ./setup.sh` |
+| Fresh VPS + OpenCode + DM + Discord | `SITE_DOMAIN=example.com ./setup.sh` |
+| Fresh VPS + Claude Code + DM | `SITE_DOMAIN=example.com ./setup.sh --runtime claude-code` |
 | Fresh VPS + DM + Telegram | `SITE_DOMAIN=example.com ./setup.sh --chat telegram` |
 | Fresh VPS + DM, no chat | `SITE_DOMAIN=example.com ./setup.sh --no-chat` |
 | Fresh VPS, no DM | `SITE_DOMAIN=example.com ./setup.sh --no-data-machine` |
 | Existing VPS + DM | `EXISTING_WP=/var/www/mysite ./setup.sh --existing` |
-| **Local + DM + Discord** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
+| Existing VPS + Claude Code | `EXISTING_WP=/var/www/mysite ./setup.sh --existing --runtime claude-code` |
+| **Local + OpenCode + DM + Discord** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
+| **Local + Claude Code + DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code` |
 | **Local + DM + Telegram** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --chat telegram` |
 | **Local + DM, no chat** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-chat` |
 | **Local, no DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-data-machine` |
 | **Local (Studio) with WP_CMD** | `WP_CMD="studio wp" EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
+| **Using --wp-path** | `./setup.sh --wp-path ~/Studio/my-site --runtime claude-code` |
 | Multisite | `SITE_DOMAIN=example.com ./setup.sh --multisite` |
 | Subdomain multisite | `SITE_DOMAIN=example.com ./setup.sh --multisite --subdomain` |
 
@@ -85,8 +99,9 @@ Add `--skip-deps` if nginx, PHP, MySQL, Node are already installed.
 Add `--skip-ssl` to skip Let's Encrypt certificate.
 Add `--root` to run the agent as root (default is dedicated service user).
 Add `--no-skills` to skip WordPress agent skills.
+Add `--agent-slug <slug>` to override the Data Machine agent slug.
 
-**WordPress Studio note:** If the site runs under WordPress Studio, prefix the command with `WP_CMD="studio wp"` so setup.sh uses Studio's WP-CLI wrapper instead of bare `wp`.
+**WordPress Studio note:** If the site runs under WordPress Studio, prefix the command with `WP_CMD="studio wp"` so setup.sh uses Studio's WP-CLI wrapper instead of bare `wp`. Studio is auto-detected when `studio` CLI and `STUDIO.md` are both present.
 
 ---
 
@@ -98,6 +113,7 @@ Before running anything, summarize what you're about to do:
 > - **Server:** 123.45.67.89
 > - **Domain:** example.com
 > - **Type:** Fresh install
+> - **Runtime:** OpenCode
 > - **Data Machine:** Yes
 > - **Chat bridge:** Kimaki (Discord)
 > - **Command:** `SITE_DOMAIN=example.com ./setup.sh`
@@ -127,8 +143,8 @@ This prints every command without executing anything. Review the output to confi
 Run directly on your machine — no SSH needed:
 
 ```bash
-git clone https://github.com/Extra-Chill/wp-opencode.git
-cd wp-opencode
+git clone https://github.com/Extra-Chill/wp-coding-agents.git
+cd wp-coding-agents
 <constructed command from above>
 ```
 
@@ -136,8 +152,8 @@ cd wp-opencode
 
 ```bash
 ssh root@<server-ip>
-git clone https://github.com/Extra-Chill/wp-opencode.git
-cd wp-opencode
+git clone https://github.com/Extra-Chill/wp-coding-agents.git
+cd wp-coding-agents
 <constructed command from above>
 ```
 
@@ -146,6 +162,7 @@ For **migration**, first transfer the database and wp-content:
 # On old server
 mysqldump dbname > backup.sql
 tar -czf wp-content.tar.gz -C /var/www/oldsite wp-content/
+
 scp backup.sql wp-content.tar.gz root@newserver:/tmp/
 
 # On new server — import, then run setup with --existing
@@ -190,10 +207,16 @@ wp plugin list --path=/path/to/site | grep data-machine
 studio wp plugin list | grep data-machine
 ```
 
-### OpenCode
+### Coding Agent
 
+**OpenCode:**
 ```bash
 opencode --version
+```
+
+**Claude Code:**
+```bash
+claude --version
 ```
 
 ### Site Reachable (VPS)
@@ -225,6 +248,20 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.kimaki.pl
 launchctl kickstart gui/$(id -u)/com.extrachill.kimaki
 ```
 
+### cc-connect
+
+**VPS:**
+```bash
+systemctl start cc-connect
+systemctl enable cc-connect
+```
+
+**Local (macOS — launchd):**
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.cc-connect.plist
+launchctl kickstart gui/$(id -u)/com.extrachill.cc-connect
+```
+
 ### Telegram
 
 After setup with `--chat telegram`, configure the bot:
@@ -235,32 +272,33 @@ After setup with `--chat telegram`, configure the bot:
 
 **VPS (systemd):**
 ```bash
-# Ensure tokens are set in the service environment
-systemctl edit opencode-serve
-# Add TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_ID
 systemctl start opencode-serve
 systemctl start opencode-telegram
 systemctl enable opencode-serve opencode-telegram
 ```
 
-**Note:** Telegram is VPS-only (systemd services). Local installs don't generate Telegram services — use OpenCode directly in terminal for local development.
+**Local (macOS — launchd):**
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-serve.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.extrachill.opencode-telegram.plist
+```
 
 3. **Verify:** Send a message to your bot on Telegram — it should respond via OpenCode.
 
 ---
 
-Credentials are saved to `~/.wp-opencode-credentials` (chmod 600).
+Credentials are saved to `~/.wp-coding-agents-credentials` (chmod 600).
 
 ---
 
 ## When to Use This Skill
 
 Use when the user says things like:
-- "Help me install wp-opencode on my server"
-- "Set up OpenCode on this VPS"
-- "Add OpenCode to my existing WordPress site"
+- "Help me install wp-coding-agents on my server"
+- "Set up a coding agent on this VPS"
+- "Add Claude Code / OpenCode to my existing WordPress site"
 - "Set up a local AI agent on my machine"
-- "Install wp-opencode with WordPress Studio"
+- "Install wp-coding-agents with WordPress Studio"
 
 **Do NOT use** for ongoing WordPress management — that's the agent's job after installation.
 
@@ -271,6 +309,9 @@ Use when the user says things like:
 - **WordPress 500 errors:** Check PHP-FPM status, nginx error log, file permissions
 - **WP-CLI errors:** Use `--allow-root` on VPS, or `--path=` / `studio wp` locally; verify wp-config.php
 - **OpenCode won't start:** Check `node --version` (needs 18+), check `opencode --version`
+- **Claude Code won't start:** Check `claude --version`, verify npm install completed
 - **Kimaki won't start:** Check `KIMAKI_BOT_TOKEN` in systemd env (VPS) or launchd plist (local), check `journalctl -u kimaki` (VPS) or `launchctl list | grep kimaki` (local)
+- **cc-connect won't start:** Check config at `~/.cc-connect/config.toml`, verify `cc-connect` is installed globally
 - **Telegram bot won't respond:** Verify `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` are set, check that both `opencode-serve` and `opencode-telegram` services are running
 - **Data Machine not working:** Verify plugin active, run `wp action-scheduler run --allow-root` (VPS) or `studio wp action-scheduler run` (local)
+- **Runtime not found:** Check available runtimes with `ls runtimes/`, or install one (`npm install -g opencode-ai` or `npm install -g @anthropic-ai/claude-code`)

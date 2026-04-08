@@ -26,7 +26,7 @@
 - Wildcard SSL guidance for subdomain multisite installs
 - WordPress agent skills cloned dynamically from [WordPress/agent-skills](https://github.com/WordPress/agent-skills) at install time
 - Data Machine skill (bundled)
-- `wp-opencode-setup` skill for local agents assisting with installation
+- `wp-coding-agents-setup` skill for local agents assisting with installation
 - `README.md`, `LICENSE` (MIT), `VERSION`
 - `docs/changelog.md`
 - use 'wp datamachine agent paths' for file discovery instead of hardcoded paths
@@ -41,7 +41,7 @@
 - AGENTS.md: grep tip applies to all plugins/themes, not just DM
 - AGENTS.md: discovery-first CLI guidance
 - Clone DM skill from data-machine-skills repo instead of bundling
-- Merge kimaki-config into wp-opencode
+- Merge kimaki-config into wp-coding-agents
 - Default to root user, add --non-root flag
 - Remove hardcoded model defaults, let OpenCode use zen free models
 - Add USER.md injection, multisite support, small_model
