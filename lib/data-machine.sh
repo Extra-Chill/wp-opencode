@@ -80,8 +80,8 @@ Be genuinely helpful. Skip filler. Be resourceful — read the file, check the c
 I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent memory, scheduling, and AI tools."
 
       # shellcheck disable=SC2086
-      echo "$SOUL_CONTENT" | $WP_CMD datamachine agent files write SOUL.md \
-        --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
+      $WP_CMD datamachine agent files write SOUL.md \
+        --agent="$AGENT_SLUG" --content="$SOUL_CONTENT" $WP_ROOT_FLAG --path="$SITE_PATH"
 
       # Scaffold MEMORY.md
       log "Scaffolding MEMORY.md..."
@@ -91,8 +91,8 @@ I manage ${SITE_DOMAIN} — a WordPress site with Data Machine for persistent me
 - Agent created during wp-coding-agents setup on $(date +%Y-%m-%d)"
 
       # shellcheck disable=SC2086
-      echo "$MEMORY_CONTENT" | $WP_CMD datamachine agent files write MEMORY.md \
-        --agent="$AGENT_SLUG" $WP_ROOT_FLAG --path="$SITE_PATH"
+      $WP_CMD datamachine agent files write MEMORY.md \
+        --agent="$AGENT_SLUG" --content="$MEMORY_CONTENT" $WP_ROOT_FLAG --path="$SITE_PATH"
 
       log "Agent '$AGENT_SLUG' created with SOUL.md and MEMORY.md"
     else

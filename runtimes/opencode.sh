@@ -188,6 +188,10 @@ runtime_merge_mcp_servers() {
     && mv "$SITE_PATH/opencode.json.tmp" "$SITE_PATH/opencode.json"
 }
 
+runtime_install_hooks() {
+  return
+}
+
 runtime_skills_dir() {
   echo "$SITE_PATH/.opencode/skills"
 }

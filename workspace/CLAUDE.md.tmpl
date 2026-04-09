@@ -7,23 +7,8 @@ WP-CLI: `{{WP_CLI_CMD}}`
 
 ## Data Machine Memory
 {{IF_DATA_MACHINE}}
-{{IF_SITE_MD}}
-@{{SITE_MD_PATH}}
-{{END_IF_SITE_MD}}
-{{IF_RULES_MD}}
-@{{RULES_MD_PATH}}
-{{END_IF_RULES_MD}}
-{{IF_SOUL_MD}}
-@{{SOUL_MD_PATH}}
-{{END_IF_SOUL_MD}}
-{{IF_USER_MD}}
-@{{USER_MD_PATH}}
-{{END_IF_USER_MD}}
-{{IF_MEMORY_MD}}
-@{{MEMORY_MD_PATH}}
-{{END_IF_MEMORY_MD}}
-
-Discover DM paths: `{{WP_CLI_CMD}} datamachine agent paths`
+<!-- DM_AGENT_SYNC_START -->
+<!-- DM_AGENT_SYNC_END -->
 {{END_IF_DATA_MACHINE}}
 {{IF_NO_DATA_MACHINE}}
 Data Machine not installed. Install with:

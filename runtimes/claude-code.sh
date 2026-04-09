@@ -113,25 +113,29 @@ runtime_generate_config() {
       CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/d; /{{END_IF_DATA_MACHINE}}/d')
       CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/,/{{END_IF_NO_DATA_MACHINE}}/d')
 
-      # Remove per-file conditionals (we insert actual discovered paths instead)
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_SITE_MD}}/,/{{END_IF_SITE_MD}}/d')
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_RULES_MD}}/,/{{END_IF_RULES_MD}}/d')
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_SOUL_MD}}/,/{{END_IF_SOUL_MD}}/d')
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_USER_MD}}/,/{{END_IF_USER_MD}}/d')
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_MEMORY_MD}}/,/{{END_IF_MEMORY_MD}}/d')
-
-      # Build @ includes from discovered files
+      # Build @ includes from discovered files and wrap with sentinels
       AT_INCLUDES=""
       for dm_file in "${DM_FILES[@]}"; do
         AT_INCLUDES="${AT_INCLUDES}@${dm_file}
 "
       done
 
-      if [ -n "$AT_INCLUDES" ]; then
-        CLAUDE_MD="${CLAUDE_MD/## Data Machine Memory/## Data Machine Memory
+      DISCOVER_LINE="Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`"
+      SENTINEL_CONTENT="<!-- DM_AGENT_SYNC_START -->
+${AT_INCLUDES}
+${DISCOVER_LINE}
+<!-- DM_AGENT_SYNC_END -->"
 
-$AT_INCLUDES}"
-      fi
+      CLAUDE_MD=$(python3 -c "
+import sys
+content = sys.argv[1]
+block = sys.argv[2]
+start = '<!-- DM_AGENT_SYNC_START -->'
+end = '<!-- DM_AGENT_SYNC_END -->'
+si = content.index(start)
+ei = content.index(end) + len(end)
+print(content[:si] + block + content[ei:], end='')
+" "$CLAUDE_MD" "$SENTINEL_CONTENT")
     else
       CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/,/{{END_IF_DATA_MACHINE}}/d')
       CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/d; /{{END_IF_NO_DATA_MACHINE}}/d')
@@ -175,6 +179,9 @@ WP-CLI: \`$WP_CLI_DISPLAY\`"
 ## Data Machine Memory"
 
     if [ "$INSTALL_DATA_MACHINE" = true ]; then
+      CLAUDE_CONTENT="$CLAUDE_CONTENT
+
+<!-- DM_AGENT_SYNC_START -->"
       for dm_file in "${DM_FILES[@]}"; do
         CLAUDE_CONTENT="$CLAUDE_CONTENT
 @$dm_file"
@@ -182,7 +189,8 @@ WP-CLI: \`$WP_CLI_DISPLAY\`"
 
       CLAUDE_CONTENT="$CLAUDE_CONTENT
 
-Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`"
+Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`
+<!-- DM_AGENT_SYNC_END -->"
     else
       CLAUDE_CONTENT="$CLAUDE_CONTENT
 
@@ -220,6 +228,72 @@ Update MEMORY.md when you learn something persistent — read it first, append.
     write_file "$SITE_PATH/CLAUDE.md" "$CLAUDE_CONTENT"
     log "Generated CLAUDE.md at $SITE_PATH/CLAUDE.md (inline)"
   fi
+}
+
+runtime_install_hooks() {
+  if [ "$INSTALL_DATA_MACHINE" != true ]; then
+    return
+  fi
+
+  log "Installing Claude Code SessionStart hook..."
+
+  local hooks_dir="$SITE_PATH/.claude/hooks"
+  local hook_src="$SCRIPT_DIR/hooks/dm-agent-sync.sh"
+  local hook_dst="$hooks_dir/dm-agent-sync.sh"
+  local settings_file="$SITE_PATH/.claude/settings.json"
+
+  if [ ! -f "$hook_src" ]; then
+    warn "Hook source not found at $hook_src — skipping"
+    return
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would copy dm-agent-sync.sh to $hooks_dir"
+    echo -e "${BLUE}[dry-run]${NC} Would configure SessionStart hook in $settings_file"
+    return
+  fi
+
+  mkdir -p "$hooks_dir"
+  cp "$hook_src" "$hook_dst"
+  chmod +x "$hook_dst"
+  log "Installed hook: $hook_dst"
+
+  # Merge SessionStart hook and disable auto-memory in settings.json
+  local hook_cmd="\"\$CLAUDE_PROJECT_DIR\"/.claude/hooks/dm-agent-sync.sh"
+
+  python3 -c "
+import json, sys, os
+
+settings_path = sys.argv[1]
+hook_cmd = sys.argv[2]
+
+settings = {}
+if os.path.isfile(settings_path):
+    with open(settings_path) as f:
+        settings = json.load(f)
+
+# Disable built-in auto-memory (conflicts with Data Machine MEMORY.md)
+settings['autoMemoryEnabled'] = False
+
+# Register SessionStart hook (idempotent)
+hooks = settings.setdefault('hooks', {})
+session_hooks = hooks.setdefault('SessionStart', [])
+
+already_registered = any(
+    (isinstance(h, str) and h == hook_cmd) or
+    (isinstance(h, dict) and h.get('command') == hook_cmd)
+    for h in session_hooks
+)
+
+if not already_registered:
+    session_hooks.append({'command': hook_cmd})
+
+with open(settings_path, 'w') as f:
+    json.dump(settings, f, indent=2)
+    f.write('\n')
+" "$settings_file" "$hook_cmd"
+
+  log "Configured settings.json: SessionStart hook + autoMemoryEnabled=false"
 }
 
 runtime_generate_instructions() {

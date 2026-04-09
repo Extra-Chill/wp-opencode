@@ -33,9 +33,11 @@ On activation, Data Machine creates a default agent and scaffolds its memory fil
 Drop a file in `runtimes/`, it's available. The script scans `runtimes/*.sh` for available runtimes and auto-detects which one to use based on what's installed:
 
 ```
+hooks/
+└── dm-agent-sync.sh   # SessionStart hook: sync DM agents into CLAUDE.md
 runtimes/
-├── opencode.sh      # OpenCode: opencode.json + AGENTS.md + {file:} includes
-└── claude-code.sh   # Claude Code: CLAUDE.md + @ includes + .mcp.json
+├── opencode.sh        # OpenCode: opencode.json + AGENTS.md + {file:} includes
+└── claude-code.sh     # Claude Code: CLAUDE.md + @ includes + .mcp.json
 ```
 
 Each runtime implements the same interface — install, config generation, MCP merge, skills directory. Adding a new runtime means implementing those functions in a single file.
@@ -169,6 +171,7 @@ SITE_DOMAIN=example.com ./setup.sh --dry-run
 | **[Data Machine](https://github.com/Extra-Chill/data-machine)** | Memory (SOUL/USER/MEMORY.md), self-scheduling, AI tools, Agent Ping | `--no-data-machine` |
 | **[Data Machine Code](https://github.com/Extra-Chill/data-machine-code)** | Workspace management, GitHub integration, git operations | Installed with Data Machine |
 | **[Kimaki](https://kimaki.xyz)**, **[cc-connect](https://github.com/nichochar/cc-connect)**, or **[opencode-telegram](https://github.com/grinev/opencode-telegram-bot)** | Chat bridge (Discord, multi-platform, or Telegram) | `--no-chat` |
+| **SessionStart hook** | Syncs Data Machine agents into CLAUDE.md on every session (Claude Code only) | Installed with Data Machine |
 | **[WordPress agent skills](https://github.com/WordPress/agent-skills)** | WP development patterns (cloned at install) | `--no-skills` |
 
 ## VPS vs. Local
@@ -208,6 +211,8 @@ Data Machine manages memory files across three layers, each scoped to a differen
 | **USER.md** | Information about the human the agent works with. Injected in chat and editor contexts only. |
 
 On activation, Data Machine creates a default agent for the first admin user and scaffolds all three layers. Each additional agent gets its own SOUL.md and MEMORY.md when created, sharing the same SITE.md and USER.md. All discovered files are injected into every session via the runtime's config — `opencode.json` (`{file:}` includes) for OpenCode, `CLAUDE.md` (`@` includes) for Claude Code. The agent doesn't manage memory infrastructure — it just reads and writes these files. DM handles the rest.
+
+**Runtime sync (Claude Code):** A SessionStart hook queries Data Machine on every session start and updates the `@` includes in CLAUDE.md. New agents created after setup are automatically discovered — no manual config regeneration needed. Claude Code's built-in auto-memory is disabled when Data Machine is installed, since DM handles memory.
 
 ## Abilities
 

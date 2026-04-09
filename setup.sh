@@ -266,6 +266,7 @@ setup_service_permissions
 runtime_install
 runtime_discover_dm_paths
 runtime_generate_config
+runtime_install_hooks
 runtime_generate_instructions
 runtime_merge_mcp_servers
 install_skills
