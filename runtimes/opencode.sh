@@ -71,7 +71,15 @@ runtime_generate_config() {
     OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
   fi
 
-  # OpenCode plugins — only when DM handles memory/scheduling via Kimaki
+  # OpenCode plugins
+  OPENCODE_PLUGINS=""
+
+  # opencode-claude-auth: Claude Max/Pro OAuth auth + billing header injection
+  # + system prompt relocation to avoid Anthropic's third-party app detection.
+  # Safe to always include — no-op when Claude credentials aren't present.
+  OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"opencode-claude-auth@latest\","
+
+  # DM context filter + agent sync — only when DM handles memory via Kimaki
   if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$CHAT_BRIDGE" = "kimaki" ]; then
     if [ "$LOCAL_MODE" = true ]; then
       KIMAKI_PLUGINS_DIR="$(npm root -g 2>/dev/null)/kimaki/plugins"
@@ -83,10 +91,14 @@ runtime_generate_config() {
     else
       KIMAKI_PLUGINS_DIR="/opt/kimaki-config/plugins"
     fi
-    OPENCODE_JSON="$OPENCODE_JSON,\n  \"plugin\": ["
-    OPENCODE_JSON="$OPENCODE_JSON\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
-    OPENCODE_JSON="$OPENCODE_JSON\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\""
-    OPENCODE_JSON="$OPENCODE_JSON\n  ]"
+    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
+    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\","
+  fi
+
+  if [ -n "$OPENCODE_PLUGINS" ]; then
+    # Remove trailing comma from last plugin entry
+    OPENCODE_PLUGINS=$(echo "$OPENCODE_PLUGINS" | sed 's/,$//')
+    OPENCODE_JSON="$OPENCODE_JSON,\n  \"plugin\": [${OPENCODE_PLUGINS}\n  ]"
   fi
 
   # Agent prompt config
