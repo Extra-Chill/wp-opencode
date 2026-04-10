@@ -124,24 +124,16 @@ runtime_generate_instructions() {
   else
     log "Phase 8: Generating AGENTS.md..."
 
-    if [ -f "$SCRIPT_DIR/workspace/AGENTS.md" ]; then
-      if [ "$DRY_RUN" = true ]; then
-        echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
-      else
-        sed -e "s|{{SITE_PATH}}|$SITE_PATH|g" -e "s|{{WP_FLAGS}}|$WP_ROOT_FLAG|g" "$SCRIPT_DIR/workspace/AGENTS.md" > "$SITE_PATH/AGENTS.md"
-      fi
+    local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
+    if [ ! -f "$agents_tmpl" ]; then
+      error "AGENTS.md template not found at $agents_tmpl"
+    fi
+
+    local wp_cli_display="wp $WP_ROOT_FLAG --path=$SITE_PATH"
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
     else
-      write_file "$SITE_PATH/AGENTS.md" "# AGENTS.md
-
-## WordPress Environment
-Site root: \`$SITE_PATH\`
-WP-CLI: \`$WP_CMD $WP_ROOT_FLAG --path=$SITE_PATH\`
-
-## Safety
-- Don't leak private data
-- Don't run destructive commands without asking
-- When in doubt, ask
-"
+      sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
     fi
 
     # Remove Data Machine sections if DM not installed

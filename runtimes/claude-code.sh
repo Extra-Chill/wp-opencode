@@ -88,45 +88,45 @@ runtime_generate_config() {
   log "Generating CLAUDE.md..."
 
   TEMPLATE="$SCRIPT_DIR/workspace/CLAUDE.md.tmpl"
-  if [ -f "$TEMPLATE" ]; then
-    CLAUDE_MD=$(cat "$TEMPLATE")
+  if [ ! -f "$TEMPLATE" ]; then
+    error "CLAUDE.md template not found at $TEMPLATE"
+  fi
 
-    # Substitute placeholders
-    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed "s|{{SITE_DOMAIN}}|$SITE_DOMAIN|g")
-    WP_CLI_DISPLAY="wp"
-    if [ "$IS_STUDIO" = true ]; then
-      WP_CLI_DISPLAY="studio wp"
-    elif [ "$LOCAL_MODE" = false ]; then
-      WP_CLI_DISPLAY="wp $WP_ROOT_FLAG --path=$SITE_PATH"
-    fi
-    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed "s|{{WP_CLI_CMD}}|$WP_CLI_DISPLAY|g")
+  CLAUDE_MD=$(cat "$TEMPLATE")
 
-    # Process Studio conditional
-    if [ "$IS_STUDIO" = true ]; then
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_STUDIO}}/d; /{{END_IF_STUDIO}}/d')
-    else
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_STUDIO}}/,/{{END_IF_STUDIO}}/d')
-    fi
+  WP_CLI_DISPLAY="wp"
+  if [ "$IS_STUDIO" = true ]; then
+    WP_CLI_DISPLAY="studio wp"
+  elif [ "$LOCAL_MODE" = false ]; then
+    WP_CLI_DISPLAY="wp $WP_ROOT_FLAG --path=$SITE_PATH"
+  fi
+  CLAUDE_MD=$(echo "$CLAUDE_MD" | sed "s|{{WP_CLI_CMD}}|$WP_CLI_DISPLAY|g")
 
-    # Process Data Machine conditional
-    if [ "$INSTALL_DATA_MACHINE" = true ]; then
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/d; /{{END_IF_DATA_MACHINE}}/d')
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/,/{{END_IF_NO_DATA_MACHINE}}/d')
+  # Process Studio conditional
+  if [ "$IS_STUDIO" = true ]; then
+    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_STUDIO}}/d; /{{END_IF_STUDIO}}/d')
+  else
+    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_STUDIO}}/,/{{END_IF_STUDIO}}/d')
+  fi
 
-      # Build @ includes from discovered files and wrap with sentinels
-      AT_INCLUDES=""
-      for dm_file in "${DM_FILES[@]}"; do
-        AT_INCLUDES="${AT_INCLUDES}@${dm_file}
+  # Process Data Machine conditional
+  if [ "$INSTALL_DATA_MACHINE" = true ]; then
+    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/d; /{{END_IF_DATA_MACHINE}}/d')
+    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/,/{{END_IF_NO_DATA_MACHINE}}/d')
+
+    AT_INCLUDES=""
+    for dm_file in "${DM_FILES[@]}"; do
+      AT_INCLUDES="${AT_INCLUDES}@${dm_file}
 "
-      done
+    done
 
-      DISCOVER_LINE="Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`"
-      SENTINEL_CONTENT="<!-- DM_AGENT_SYNC_START -->
+    DISCOVER_LINE="Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`"
+    SENTINEL_CONTENT="<!-- DM_AGENT_SYNC_START -->
 ${AT_INCLUDES}
 ${DISCOVER_LINE}
 <!-- DM_AGENT_SYNC_END -->"
 
-      CLAUDE_MD=$(python3 -c "
+    CLAUDE_MD=$(python3 -c "
 import sys
 content = sys.argv[1]
 block = sys.argv[2]
@@ -136,98 +136,16 @@ si = content.index(start)
 ei = content.index(end) + len(end)
 print(content[:si] + block + content[ei:], end='')
 " "$CLAUDE_MD" "$SENTINEL_CONTENT")
-    else
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/,/{{END_IF_DATA_MACHINE}}/d')
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/d; /{{END_IF_NO_DATA_MACHINE}}/d')
-    fi
-
-    # Process Multisite conditional
-    if [ "$MULTISITE" = true ]; then
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_MULTISITE}}/d; /{{END_IF_MULTISITE}}/d')
-    else
-      CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_MULTISITE}}/,/{{END_IF_MULTISITE}}/d')
-    fi
-
-    # Clean up stacked empty lines from conditional removal
-    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/^$/N;/^\n$/d')
-
-    write_file "$SITE_PATH/CLAUDE.md" "$CLAUDE_MD"
-    log "Generated CLAUDE.md at $SITE_PATH/CLAUDE.md"
   else
-    # Inline generation if template not found
-    warn "Template not found at $TEMPLATE — generating inline"
-
-    WP_CLI_DISPLAY="wp"
-    if [ "$IS_STUDIO" = true ]; then
-      WP_CLI_DISPLAY="studio wp"
-    elif [ "$LOCAL_MODE" = false ]; then
-      WP_CLI_DISPLAY="wp $WP_ROOT_FLAG --path=$SITE_PATH"
-    fi
-
-    CLAUDE_CONTENT="# $SITE_DOMAIN
-
-WP-CLI: \`$WP_CLI_DISPLAY\`"
-
-    if [ "$IS_STUDIO" = true ]; then
-      CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-@STUDIO.md"
-    fi
-
-    CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-## Data Machine Memory"
-
-    if [ "$INSTALL_DATA_MACHINE" = true ]; then
-      CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-<!-- DM_AGENT_SYNC_START -->"
-      for dm_file in "${DM_FILES[@]}"; do
-        CLAUDE_CONTENT="$CLAUDE_CONTENT
-@$dm_file"
-      done
-
-      CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-Discover DM paths: \`$WP_CLI_DISPLAY datamachine agent paths\`
-<!-- DM_AGENT_SYNC_END -->"
-    else
-      CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-Data Machine not installed."
-    fi
-
-    CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-## WordPress Source
-
-- \`wp-content/plugins/\` — all plugin source
-- \`wp-content/themes/\` — all theme source
-- \`wp-includes/\` — WordPress core (read-only)"
-
-    if [ "$MULTISITE" = true ]; then
-      CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-## Multisite
-
-This is a WordPress Multisite network. Use \`--url=<site>\` with WP-CLI commands to target a specific site."
-    fi
-
-    CLAUDE_CONTENT="$CLAUDE_CONTENT
-
-## Memory Protocol
-
-Update MEMORY.md when you learn something persistent — read it first, append.
-
-## Rules
-
-- Discover before memorizing — use \`--help\`
-- Don't deploy or version bump without being told
-- Never modify wp-includes/ or wp-admin/"
-
-    write_file "$SITE_PATH/CLAUDE.md" "$CLAUDE_CONTENT"
-    log "Generated CLAUDE.md at $SITE_PATH/CLAUDE.md (inline)"
+    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_DATA_MACHINE}}/,/{{END_IF_DATA_MACHINE}}/d')
+    CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/{{IF_NO_DATA_MACHINE}}/d; /{{END_IF_NO_DATA_MACHINE}}/d')
   fi
+
+  # Clean up stacked empty lines from conditional removal
+  CLAUDE_MD=$(echo "$CLAUDE_MD" | sed '/^$/N;/^\n$/d')
+
+  write_file "$SITE_PATH/CLAUDE.md" "$CLAUDE_MD"
+  log "Generated CLAUDE.md at $SITE_PATH/CLAUDE.md"
 }
 
 runtime_install_hooks() {
@@ -297,8 +215,40 @@ with open(settings_path, 'w') as f:
 }
 
 runtime_generate_instructions() {
-  # Claude Code uses CLAUDE.md as the instructions file — no separate step needed
-  return
+  if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
+    log "AGENTS.md already exists — skipping (delete to regenerate)"
+    return
+  fi
+
+  log "Generating AGENTS.md..."
+
+  local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
+  if [ ! -f "$agents_tmpl" ]; then
+    error "AGENTS.md template not found at $agents_tmpl"
+  fi
+
+  WP_CLI_DISPLAY="wp"
+  if [ "$IS_STUDIO" = true ]; then
+    WP_CLI_DISPLAY="studio wp"
+  elif [ "$LOCAL_MODE" = false ]; then
+    WP_CLI_DISPLAY="wp $WP_ROOT_FLAG --path=$SITE_PATH"
+  fi
+
+  local agents_md
+  agents_md=$(sed "s|{{WP_CLI_CMD}}|$WP_CLI_DISPLAY|g" "$agents_tmpl")
+
+  # Remove Data Machine sections if DM not installed
+  if [ "$INSTALL_DATA_MACHINE" = false ]; then
+    agents_md=$(echo "$agents_md" | awk '/^### (Data Machine|Workspace)/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip')
+  fi
+
+  # Remove multisite section for single-site installs
+  if [ "$MULTISITE" != true ]; then
+    agents_md=$(echo "$agents_md" | awk '/^### Multisite/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip')
+  fi
+
+  write_file "$SITE_PATH/AGENTS.md" "$agents_md"
+  log "Generated AGENTS.md at $SITE_PATH/AGENTS.md"
 }
 
 runtime_merge_mcp_servers() {
