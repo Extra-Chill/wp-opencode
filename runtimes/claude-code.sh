@@ -176,7 +176,7 @@ runtime_install_hooks() {
   chmod +x "$hook_dst"
   log "Installed hook: $hook_dst"
 
-  # Merge SessionStart hook and disable auto-memory in settings.json
+  # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json
   local hook_cmd="\"\$CLAUDE_PROJECT_DIR\"/.claude/hooks/dm-agent-sync.sh"
 
   python3 -c "
@@ -184,6 +184,7 @@ import json, sys, os
 
 settings_path = sys.argv[1]
 hook_cmd = sys.argv[2]
+workspace_dir = sys.argv[3]
 
 settings = {}
 if os.path.isfile(settings_path):
@@ -192,6 +193,12 @@ if os.path.isfile(settings_path):
 
 # Disable built-in auto-memory (conflicts with Data Machine MEMORY.md)
 settings['autoMemoryEnabled'] = False
+
+# Allow DM workspace as additional directory (read/write without prompting)
+perms = settings.setdefault('permissions', {})
+additional_dirs = perms.setdefault('additionalDirectories', [])
+if workspace_dir not in additional_dirs:
+    additional_dirs.append(workspace_dir)
 
 # Register SessionStart hook (idempotent)
 hooks = settings.setdefault('hooks', {})
@@ -209,9 +216,9 @@ if not already_registered:
 with open(settings_path, 'w') as f:
     json.dump(settings, f, indent=2)
     f.write('\n')
-" "$settings_file" "$hook_cmd"
+" "$settings_file" "$hook_cmd" "$DM_WORKSPACE_DIR"
 
-  log "Configured settings.json: SessionStart hook + autoMemoryEnabled=false"
+  log "Configured settings.json: SessionStart hook, workspace permissions, autoMemoryEnabled=false"
 }
 
 runtime_generate_instructions() {
