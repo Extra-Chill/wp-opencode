@@ -178,45 +178,33 @@ runtime_install_hooks() {
 
   # Merge SessionStart hook, workspace permissions, and disable auto-memory in settings.json
   local hook_cmd="\"\$CLAUDE_PROJECT_DIR\"/.claude/hooks/dm-agent-sync.sh"
+  local hook_entry
+  hook_entry=$(jq -n --arg cmd "$hook_cmd" '{matcher: "", hooks: [{type: "command", command: $cmd}]}')
 
-  python3 -c "
-import json, sys, os
+  local settings='{}'
+  if [ -f "$settings_file" ]; then
+    settings=$(cat "$settings_file")
+  fi
 
-settings_path = sys.argv[1]
-hook_cmd = sys.argv[2]
-workspace_dir = sys.argv[3]
+  settings=$(echo "$settings" | jq \
+    --arg workspace "$DM_WORKSPACE_DIR" \
+    --argjson hook "$hook_entry" \
+    --arg cmd "$hook_cmd" \
+    '
+    .autoMemoryEnabled = false
 
-settings = {}
-if os.path.isfile(settings_path):
-    with open(settings_path) as f:
-        settings = json.load(f)
+    | .permissions.additionalDirectories = (
+        (.permissions.additionalDirectories // [])
+        | if any(. == $workspace) then . else . + [$workspace] end
+      )
 
-# Disable built-in auto-memory (conflicts with Data Machine MEMORY.md)
-settings['autoMemoryEnabled'] = False
+    | .hooks.SessionStart = (
+        (.hooks.SessionStart // [])
+        | if any(.hooks[]?.command? == $cmd) then . else . + [$hook] end
+      )
+    ')
 
-# Allow DM workspace as additional directory (read/write without prompting)
-perms = settings.setdefault('permissions', {})
-additional_dirs = perms.setdefault('additionalDirectories', [])
-if workspace_dir not in additional_dirs:
-    additional_dirs.append(workspace_dir)
-
-# Register SessionStart hook (idempotent)
-hooks = settings.setdefault('hooks', {})
-session_hooks = hooks.setdefault('SessionStart', [])
-
-already_registered = any(
-    (isinstance(h, str) and h == hook_cmd) or
-    (isinstance(h, dict) and h.get('command') == hook_cmd)
-    for h in session_hooks
-)
-
-if not already_registered:
-    session_hooks.append({'command': hook_cmd})
-
-with open(settings_path, 'w') as f:
-    json.dump(settings, f, indent=2)
-    f.write('\n')
-" "$settings_file" "$hook_cmd" "$DM_WORKSPACE_DIR"
+  echo "$settings" | jq . > "$settings_file"
 
   log "Configured settings.json: SessionStart hook, workspace permissions, autoMemoryEnabled=false"
 }
