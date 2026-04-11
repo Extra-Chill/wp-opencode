@@ -231,48 +231,42 @@ runtime_generate_config() {
 }
 
 runtime_generate_instructions() {
-  # Generate AGENTS.md (skip if already exists — may have been customized)
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
     log "Phase 8: AGENTS.md already exists — skipping (delete to regenerate)"
-  else
-    log "Phase 8: Generating AGENTS.md..."
-
-    local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
-    if [ ! -f "$agents_tmpl" ]; then
-      error "AGENTS.md template not found at $agents_tmpl"
-    fi
-
-    local wp_cli_display="wp"
-    if [ "$IS_STUDIO" = true ]; then
-      wp_cli_display="studio wp"
-    elif [ "$LOCAL_MODE" = false ]; then
-      wp_cli_display="wp $WP_ROOT_FLAG --path=$SITE_PATH"
-    fi
-    if [ "$DRY_RUN" = true ]; then
-      echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
-    else
-      sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
-    fi
-
-    # Remove Data Machine sections if DM not installed
-    if [ "$INSTALL_DATA_MACHINE" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
-      log "Removing Data Machine references from AGENTS.md..."
-      awk '/^### (Data Machine|Workspace)/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
-        "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
-      mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
-    fi
-
-    # Remove multisite section for single-site installs
-    if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
-      IS_MULTISITE="${IS_MULTISITE:-no}"
-      if [ "$IS_MULTISITE" != "yes" ]; then
-        awk '/^### Multisite/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip' \
-          "$SITE_PATH/AGENTS.md" > "$SITE_PATH/AGENTS.md.tmp" 2>/dev/null || true
-        mv "$SITE_PATH/AGENTS.md.tmp" "$SITE_PATH/AGENTS.md"
-      fi
-    fi
+    return
   fi
 
+  log "Phase 8: Generating AGENTS.md..."
+
+  # When Data Machine is installed, compose from registered sections.
+  # This handles WP-CLI prefix resolution, multisite detection, and plugin
+  # sections (intelligence, etc.) automatically at runtime.
+  if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$DRY_RUN" = false ]; then
+    if wp_cmd datamachine agent compose AGENTS.md 2>/dev/null; then
+      log "AGENTS.md composed from SectionRegistry"
+      return
+    fi
+    warn "Compose failed — falling back to static template"
+  fi
+
+  # Fallback: minimal template for non-DM installs or dry-run.
+  local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
+  if [ ! -f "$agents_tmpl" ]; then
+    error "AGENTS.md template not found at $agents_tmpl"
+  fi
+
+  local wp_cli_display="wp"
+  if [ "$IS_STUDIO" = true ]; then
+    wp_cli_display="studio wp"
+  elif [ "$LOCAL_MODE" = false ]; then
+    wp_cli_display="wp $WP_ROOT_FLAG --path=$SITE_PATH"
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
+  else
+    sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
+  fi
 }
 
 runtime_merge_mcp_servers() {

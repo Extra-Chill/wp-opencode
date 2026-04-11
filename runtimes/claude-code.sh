@@ -229,6 +229,16 @@ runtime_generate_instructions() {
 
   log "Generating AGENTS.md..."
 
+  # When Data Machine is installed, compose from registered sections.
+  if [ "$INSTALL_DATA_MACHINE" = true ] && [ "$DRY_RUN" = false ]; then
+    if wp_cmd datamachine agent compose AGENTS.md 2>/dev/null; then
+      log "AGENTS.md composed from SectionRegistry"
+      return
+    fi
+    warn "Compose failed — falling back to static template"
+  fi
+
+  # Fallback: minimal template for non-DM installs or dry-run.
   local agents_tmpl="$SCRIPT_DIR/workspace/AGENTS.md"
   if [ ! -f "$agents_tmpl" ]; then
     error "AGENTS.md template not found at $agents_tmpl"
@@ -243,16 +253,6 @@ runtime_generate_instructions() {
 
   local agents_md
   agents_md=$(sed "s|{{WP_CLI_CMD}}|$WP_CLI_DISPLAY|g" "$agents_tmpl")
-
-  # Remove Data Machine sections if DM not installed
-  if [ "$INSTALL_DATA_MACHINE" = false ]; then
-    agents_md=$(echo "$agents_md" | awk '/^### (Data Machine|Workspace)/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip')
-  fi
-
-  # Remove multisite section for single-site installs
-  if [ "$MULTISITE" != true ]; then
-    agents_md=$(echo "$agents_md" | awk '/^### Multisite/{skip=1; next} /^### /{skip=0} /^## /{skip=0} !skip')
-  fi
 
   write_file "$SITE_PATH/AGENTS.md" "$agents_md"
   log "Generated AGENTS.md at $SITE_PATH/AGENTS.md"
