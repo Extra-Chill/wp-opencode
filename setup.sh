@@ -154,6 +154,7 @@ USAGE:
   Existing WordPress: EXISTING_WP=/var/www/mysite ./setup.sh --existing
   Local (macOS/Linux): EXISTING_WP=/path/to/wordpress ./setup.sh --local
   With Claude Code:   ./setup.sh --runtime claude-code --existing
+  With Studio Code:   ./setup.sh --runtime studio-code --local
 
 OPTIONS:
   --existing         Add agent to existing WordPress (skip WP install)
@@ -220,7 +221,9 @@ fi
 
 # Auto-detect runtime if not specified
 if [ -z "$RUNTIME" ]; then
-  if command -v claude &>/dev/null; then
+  if command -v studio &>/dev/null && [ "${IS_STUDIO:-false}" = true ]; then
+    RUNTIME="studio-code"
+  elif command -v claude &>/dev/null; then
     RUNTIME="claude-code"
   elif command -v opencode &>/dev/null; then
     RUNTIME="opencode"
@@ -240,8 +243,8 @@ source "$RUNTIME_FILE"
 # Set default chat bridge based on runtime
 if [ -z "$CHAT_BRIDGE" ]; then
   case "$RUNTIME" in
-    claude-code) CHAT_BRIDGE="cc-connect" ;;
-    *)           CHAT_BRIDGE="kimaki" ;;
+    claude-code|studio-code) CHAT_BRIDGE="cc-connect" ;;
+    *)                       CHAT_BRIDGE="kimaki" ;;
   esac
 fi
 

@@ -28,12 +28,13 @@ This skill is for the **local agent** (Claude Code, Cursor, etc.) assisting with
 
 ### Question 2: Coding Agent Runtime
 
-> "Which coding agent do you want to use?
+> "Which coding agent(s) do you want to use? You can choose one or more (comma-separated).
 >
 > - **OpenCode** — Open-source, supports zen free models, uses opencode.json config
 > - **Claude Code** — Anthropic's CLI agent, uses CLAUDE.md config with @ includes
+> - **Studio Code** — WordPress Studio's built-in AI agent, uses CLAUDE.md + Studio tools
 >
-> If both are installed, the script auto-detects. You can also specify with `--runtime`."
+> If multiple are installed, the script auto-detects. You can also specify with `--runtime` (e.g., `--runtime claude-code,studio-code`)."
 
 ### Question 3: Autonomous Operation
 
@@ -95,6 +96,8 @@ Based on their answers, construct the appropriate command:
 | Existing VPS + Claude Code | `EXISTING_WP=/var/www/mysite ./setup.sh --existing --runtime claude-code` |
 | **Local + OpenCode + DM + Discord** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local` |
 | **Local + Claude Code + DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code` |
+| **Local + Studio Code + DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime studio-code` |
+| **Local + multiple runtimes** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --runtime claude-code,studio-code` |
 | **Local + DM + Telegram** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --chat telegram` |
 | **Local + DM, no chat** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-chat` |
 | **Local, no DM** | `EXISTING_WP=~/Studio/my-site ./setup.sh --local --no-data-machine` |
@@ -226,6 +229,11 @@ opencode --version
 **Claude Code:**
 ```bash
 claude --version
+```
+
+**Studio Code:**
+```bash
+studio --version
 ```
 
 ### Site Reachable (VPS)

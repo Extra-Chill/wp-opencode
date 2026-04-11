@@ -123,7 +123,7 @@ runtime_discover_dm_paths() {
     if [ -n "$AGENT_SLUG" ]; then
       AGENT_FLAG="--agent=$AGENT_SLUG"
     fi
-    DM_PATHS_RAW=$($WP_CMD datamachine agent paths --format=json $AGENT_FLAG $WP_ROOT_FLAG --path="$SITE_PATH" 2>/dev/null)
+    DM_PATHS_RAW=$(wp_cmd datamachine agent paths --format=json $AGENT_FLAG 2>/dev/null || echo "")
     # SQLite translation layer may emit HTML error noise — extract only JSON
     DM_PATHS_JSON=$(echo "$DM_PATHS_RAW" | sed -n '/^{/,/^}/p')
     if [ -z "$DM_PATHS_JSON" ]; then
@@ -242,7 +242,12 @@ runtime_generate_instructions() {
       error "AGENTS.md template not found at $agents_tmpl"
     fi
 
-    local wp_cli_display="wp $WP_ROOT_FLAG --path=$SITE_PATH"
+    local wp_cli_display="wp"
+    if [ "$IS_STUDIO" = true ]; then
+      wp_cli_display="studio wp"
+    elif [ "$LOCAL_MODE" = false ]; then
+      wp_cli_display="wp $WP_ROOT_FLAG --path=$SITE_PATH"
+    fi
     if [ "$DRY_RUN" = true ]; then
       echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
     else
