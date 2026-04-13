@@ -48,6 +48,7 @@ MULTISITE=false
 MULTISITE_TYPE="subdirectory"
 INSTALL_SKILLS=true
 SKILLS_ONLY=false
+RUNTIME_ONLY=false
 RUNTIME=""
 IS_STUDIO=false
 
@@ -116,6 +117,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-skills)
       INSTALL_SKILLS=false
+      shift
+      ;;
+    --runtime-only)
+      RUNTIME_ONLY=true
+      MODE="existing"
       shift
       ;;
     --runtime)
@@ -261,17 +267,22 @@ if [ "$SKILLS_ONLY" = true ]; then
   exit 0
 fi
 
-install_system_deps
-setup_database
-install_wordpress
-setup_multisite
-create_service_user
-install_data_machine
-create_dm_agent
-install_extra_plugins
-setup_nginx
-setup_ssl
-setup_service_permissions
+# --runtime-only skips infrastructure phases (plugins, database, agent creation).
+# Use when adding a runtime to an existing agent that already has plugins installed.
+if [ "$RUNTIME_ONLY" != true ]; then
+  install_system_deps
+  setup_database
+  install_wordpress
+  setup_multisite
+  create_service_user
+  install_data_machine
+  create_dm_agent
+  install_extra_plugins
+  setup_nginx
+  setup_ssl
+  setup_service_permissions
+fi
+
 runtime_install
 runtime_discover_dm_paths
 runtime_generate_config
