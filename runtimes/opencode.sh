@@ -11,6 +11,7 @@ runtime_install() {
   fi
 
   _install_opencode_wrapper
+  _patch_claude_auth_plugin
 }
 
 # Install a wrapper script that syncs Kimaki's Anthropic OAuth credentials
@@ -109,6 +110,37 @@ exec '"${REAL_BIN}"' "$@"
     echo "$WRAPPER_CONTENT" > "$OPENCODE_BIN"
     chmod +x "$OPENCODE_BIN"
     log "Installed credential sync wrapper at $OPENCODE_BIN → $REAL_BIN"
+  fi
+}
+
+# Patch opencode-claude-auth to use PascalCase mcp_ tool names.
+#
+# Anthropic's billing validator rejects lowercase mcp_-prefixed tool names
+# (e.g. mcp_bash) as non-Claude-Code clients, causing 400 "out of extra usage"
+# errors. Real Claude Code uses PascalCase (mcp_Bash, mcp_Read). This patch
+# applies the same convention until the upstream plugin releases a fix.
+#
+# Safe to re-run: detects if already patched and skips.
+# Ref: https://github.com/griffinmartin/opencode-claude-auth/issues/188
+#      https://github.com/griffinmartin/opencode-claude-auth/pull/191
+_patch_claude_auth_plugin() {
+  if [ ! -f "$SCRIPT_DIR/lib/patch-claude-auth.py" ]; then
+    warn "patch-claude-auth.py not found — skipping auth plugin patch"
+    return
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} Would patch opencode-claude-auth with PascalCase tool names"
+    return
+  fi
+
+  log "Checking opencode-claude-auth for PascalCase patch..."
+  python3 "$SCRIPT_DIR/lib/patch-claude-auth.py" 2>/dev/null
+
+  if [ $? -eq 0 ]; then
+    log "opencode-claude-auth: PascalCase tool names applied (mcp_Bash, mcp_Read, etc.)"
+  else
+    warn "opencode-claude-auth patch failed or plugin not yet cached — will retry on next run"
   fi
 }
 
