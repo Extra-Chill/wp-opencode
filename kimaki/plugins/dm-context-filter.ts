@@ -16,6 +16,13 @@
 //    per-turn "## worktree" section. Data Machine Code manages its own
 //    workspace and worktrees; keeping Kimaki's worktree language around causes
 //    the agent to try using Kimaki worktrees instead of DM Code's workspace.
+// 8. Permissions — ~80 tokens describing which Discord roles can message the
+//    bot. The agent has no capability to act on this; pure metadata leakage.
+// 9. Upgrading kimaki — ~80 tokens of /upgrade-and-restart playbook. The user
+//    runs the slash command themselves when they want to upgrade.
+//
+// NOTE: "## debugging kimaki issues" is intentionally kept — when Kimaki itself
+// throws errors, the agent needs the kimaki.log path to investigate.
 //
 // What it removes from chat message injection:
 // 8. MEMORY.md injection — Kimaki reads MEMORY.md from the project directory and
@@ -39,6 +46,8 @@ const fleetContextFilter: Plugin = async () => {
     "experimental.chat.system.transform": async (_input, output) => {
       output.system = output.system.map((block) => {
         let result = block;
+        result = stripSection(result, "## permissions");
+        result = stripSection(result, "## upgrading kimaki");
         result = stripSection(result, "## scheduled sends and task management");
         result = stripSection(result, "## running dev servers with tunnel access");
         result = stripSection(result, "## creating worktrees");
