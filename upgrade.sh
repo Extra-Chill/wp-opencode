@@ -223,17 +223,6 @@ sync_kimaki_config() {
     return 0
   fi
 
-  # Detect stale .git remote (dead repo chubes4/kimaki-config)
-  if [ -d "$KIMAKI_CONFIG_DIR/.git" ]; then
-    local remote_url
-    remote_url=$(cd "$KIMAKI_CONFIG_DIR" && git remote get-url origin 2>/dev/null || echo "")
-    if echo "$remote_url" | grep -q "chubes4/kimaki-config"; then
-      warn "  Detected stale .git in $KIMAKI_CONFIG_DIR (remote: $remote_url)"
-      warn "  This is a dead repo — the authoritative source is now wp-coding-agents/kimaki/"
-      warn "  Consider removing .git: rm -rf $KIMAKI_CONFIG_DIR/.git"
-    fi
-  fi
-
   # Backup current state
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would backup $KIMAKI_CONFIG_DIR → $BACKUP_DIR"
