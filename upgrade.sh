@@ -37,9 +37,15 @@
 #   ./upgrade.sh --agents-md-only  # only regenerate AGENTS.md
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
 #
-# Safety: NEVER touches opencode.json, WordPress DB, nginx, SSL,
-#   ~/.kimaki/ auth state, the DM workspace cloned repos,
-#   agent memory files, or the running kimaki service.
+# Safety: NEVER touches WordPress DB, nginx, SSL, ~/.kimaki/ auth state,
+#   the DM workspace cloned repos, agent memory files, or the running
+#   chat-bridge service.
+#
+#   opencode.json is only touched when --repair-opencode-json is passed.
+#   The repair surgically rewrites the `plugin` array to match what current
+#   setup would produce for the detected (runtime, chat bridge, DM) combo,
+#   preserving all other keys. A .backup.<ts> is written alongside. Without
+#   the flag, drift is diagnosed and reported in the summary but not fixed.
 #
 
 set -e
@@ -68,6 +74,7 @@ DRY_RUN=false
 KIMAKI_ONLY=false
 SKILLS_ONLY=false
 AGENTS_MD_ONLY=false
+REPAIR_OPENCODE_JSON=false
 SHOW_HELP=false
 
 # Defaults setup.sh expects (detect.sh reads these)
@@ -91,6 +98,7 @@ while [[ $# -gt 0 ]]; do
     --kimaki-only)   KIMAKI_ONLY=true; shift ;;
     --skills-only)   SKILLS_ONLY=true; shift ;;
     --agents-md-only) AGENTS_MD_ONLY=true; shift ;;
+    --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
@@ -113,6 +121,11 @@ USAGE:
                                 and telegram when they are the detected bridge)
   ./upgrade.sh --skills-only    Only sync agent skills
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
+  ./upgrade.sh --repair-opencode-json
+                                Detect AND fix drift between opencode.json's
+                                "plugin" array and what current setup would
+                                produce. Writes a .backup.<ts> alongside.
+                                Default behaviour: diagnose + warn only.
   ./upgrade.sh --runtime <name> Force runtime (auto-detected otherwise)
   ./upgrade.sh --wp-path <path> Override detected WordPress path
   ./upgrade.sh --local          Local mode (no systemd; auto-on on macOS)
@@ -125,12 +138,17 @@ KIMAKI PLUGIN INSTALL TARGETS:
   Local: \$(npm root -g)/kimaki/plugins
 
 NEVER TOUCHED:
-  - opencode.json / CLAUDE.md runtime config
+  - CLAUDE.md runtime config
   - WordPress database, nginx, SSL certs
   - ~/.kimaki/ auth state and OAuth tokens
   - DM workspace cloned repos
   - Agent memory files (SOUL.md, MEMORY.md, USER.md, etc.)
-  - Running kimaki service (never restarted automatically)
+  - Running chat-bridge service (never restarted automatically)
+
+OPT-IN TOUCHES:
+  - opencode.json — only with --repair-opencode-json. Rewrites the
+    "plugin" array to match current setup output; preserves all other
+    keys; writes a .backup.<ts> alongside.
 HELP
   exit 0
 fi
@@ -218,6 +236,10 @@ echo ""
 
 # Track what was touched for the summary
 UPDATED_ITEMS=()
+
+# Set true when opencode.json is found to have plugin-array drift and the
+# --repair-opencode-json flag was NOT passed. Shown loudly in print_summary.
+OPENCODE_JSON_DRIFT=false
 
 # ============================================================================
 # Helpers
@@ -332,16 +354,30 @@ _sync_kimaki_config() {
     log "Phase 2: Syncing /opt/kimaki-config..."
   fi
 
-  # On local, the kimaki npm package must be installed for plugins to land
-  # somewhere opencode actually loads from. On VPS, /opt/kimaki-config is
-  # created by setup.sh — refuse to bootstrap it here.
-  if [ "$LOCAL_MODE" = false ] && [ ! -d "$KIMAKI_CONFIG_DIR" ]; then
-    warn "  $KIMAKI_CONFIG_DIR does not exist — nothing to sync"
-    return 0
-  fi
+  # Local: the kimaki npm package must be installed for plugins to land
+  # somewhere opencode actually loads from. Refuse to bootstrap here — the
+  # user must install kimaki first.
   if [ "$LOCAL_MODE" = true ] && [ ! -d "$(dirname "$KIMAKI_PLUGINS_DIR")" ]; then
     warn "  Kimaki npm package not found at $(dirname "$KIMAKI_PLUGINS_DIR") — install with 'npm install -g kimaki'"
     return 0
+  fi
+
+  # VPS: if /opt/kimaki-config is missing, this install predates v0.4.0 (when
+  # setup.sh started creating it). We're in the kimaki dispatch branch, so
+  # kimaki IS the detected bridge and kimaki.service IS running — the
+  # config dir just never got bootstrapped. Create it now from the repo.
+  # All contents are wp-coding-agents-owned (plugins, post-upgrade.sh,
+  # kill list); there is no user state to preserve.
+  if [ "$LOCAL_MODE" = false ] && [ ! -d "$KIMAKI_CONFIG_DIR" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would bootstrap $KIMAKI_CONFIG_DIR from $SCRIPT_DIR/kimaki/"
+    else
+      log "  $KIMAKI_CONFIG_DIR missing — bootstrapping from repo (install predates v0.4.0)"
+      mkdir -p "$KIMAKI_CONFIG_DIR/plugins"
+      UPDATED_ITEMS+=("bootstrapped $KIMAKI_CONFIG_DIR (install predates v0.4.0)")
+      # Fall through — the plugin/post-upgrade/kill-list copy logic below
+      # handles the actual file placement idempotently.
+    fi
   fi
 
   # Backup current state (only if there's something to back up).
@@ -435,6 +471,132 @@ _sync_kimaki_config() {
   # Export resolved paths so print_summary can reference them
   RESOLVED_KIMAKI_CONFIG_DIR="$KIMAKI_CONFIG_DIR"
   RESOLVED_KIMAKI_PLUGINS_DIR="$KIMAKI_PLUGINS_DIR"
+}
+
+# ============================================================================
+# Phase 2b: Detect + optionally repair opencode.json plugin drift
+#
+# opencode.json is user-owned (model settings, agent prompt files, permissions,
+# etc.), so this phase is read-only by default. It compares the file's
+# `plugin` array against what current setup would produce for the detected
+# (RUNTIME, CHAT_BRIDGE, INSTALL_DATA_MACHINE) combo and surfaces drift.
+#
+# The most common drift vectors:
+#   - install predates v0.4.0 (no `plugin` key at all)
+#   - install predates #51 fix (stale `opencode-claude-auth@latest` on kimaki)
+#   - new plugins added to setup.sh that the install never got
+#
+# With --repair-opencode-json, the `plugin` array is surgically rewritten to
+# match the expected list. All other keys are preserved. A .backup.<ts> is
+# written alongside.
+#
+# Non-opencode runtimes (claude-code, studio-code) are skipped silently —
+# they use different config mechanisms.
+# ============================================================================
+
+check_opencode_json_drift() {
+  # Only runs for opencode runtime. Silent skip on others.
+  if [ "$RUNTIME" != "opencode" ]; then
+    return 0
+  fi
+
+  local OPENCODE_JSON_FILE="$SITE_PATH/opencode.json"
+  if [ ! -f "$OPENCODE_JSON_FILE" ]; then
+    warn "Phase 2b: $OPENCODE_JSON_FILE not found — skipping drift check"
+    return 0
+  fi
+
+  local HELPER="$SCRIPT_DIR/lib/repair-opencode-json.py"
+  if [ ! -f "$HELPER" ]; then
+    warn "Phase 2b: $HELPER not found — skipping drift check"
+    return 0
+  fi
+
+  local BRIDGE_ARG="${CHAT_BRIDGE:-none}"
+  local DM_ARG="false"
+  [ "$INSTALL_DATA_MACHINE" = true ] && DM_ARG="true"
+
+  # Kimaki plugins dir — match what _sync_kimaki_config resolved.
+  local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+
+  if [ "$REPAIR_OPENCODE_JSON" = true ]; then
+    log "Phase 2b: Repairing opencode.json plugin array..."
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME --chat-bridge $BRIDGE_ARG --install-dm $DM_ARG --kimaki-plugins-dir $PLUGINS_DIR --apply"
+      # Still show the diagnostic even in dry-run
+      local dry_out
+      dry_out=$(python3 "$HELPER" \
+        --file "$OPENCODE_JSON_FILE" \
+        --runtime "$RUNTIME" \
+        --chat-bridge "$BRIDGE_ARG" \
+        --install-dm "$DM_ARG" \
+        --kimaki-plugins-dir "$PLUGINS_DIR" 2>&1 || true)
+      echo "$dry_out" | sed 's/^/    /'
+      return 0
+    fi
+
+    local out rc
+    out=$(python3 "$HELPER" \
+      --file "$OPENCODE_JSON_FILE" \
+      --runtime "$RUNTIME" \
+      --chat-bridge "$BRIDGE_ARG" \
+      --install-dm "$DM_ARG" \
+      --kimaki-plugins-dir "$PLUGINS_DIR" \
+      --apply \
+      --backup-suffix "$TIMESTAMP" 2>&1) && rc=0 || rc=$?
+
+    local status
+    status=$(echo "$out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
+
+    case "$status" in
+      ok)
+        log "  opencode.json plugin array already correct"
+        ;;
+      repaired)
+        log "  opencode.json repaired (backup: ${OPENCODE_JSON_FILE}.backup.$TIMESTAMP)"
+        log "  $out"
+        UPDATED_ITEMS+=("opencode.json plugin array (repaired)")
+        ;;
+      skipped)
+        log "  $out"
+        ;;
+      *)
+        warn "  repair-opencode-json.py returned status=$status (rc=$rc)"
+        warn "  $out"
+        ;;
+    esac
+    return 0
+  fi
+
+  # Diagnostic-only path (default).
+  local out rc
+  out=$(python3 "$HELPER" \
+    --file "$OPENCODE_JSON_FILE" \
+    --runtime "$RUNTIME" \
+    --chat-bridge "$BRIDGE_ARG" \
+    --install-dm "$DM_ARG" \
+    --kimaki-plugins-dir "$PLUGINS_DIR" 2>&1) && rc=0 || rc=$?
+
+  local status
+  status=$(echo "$out" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('status','?'))" 2>/dev/null || echo "parse-error")
+
+  case "$status" in
+    ok)
+      log "Phase 2b: opencode.json plugin array matches current setup"
+      ;;
+    drift)
+      warn "Phase 2b: opencode.json plugin array has drift — re-run with --repair-opencode-json to fix"
+      warn "  $out"
+      OPENCODE_JSON_DRIFT=true
+      ;;
+    skipped)
+      log "Phase 2b: $out"
+      ;;
+    *)
+      warn "Phase 2b: repair-opencode-json.py returned status=$status (rc=$rc)"
+      warn "  $out"
+      ;;
+  esac
 }
 
 # ============================================================================
@@ -810,6 +972,13 @@ print_summary() {
     done
   fi
 
+  if [ "$OPENCODE_JSON_DRIFT" = true ]; then
+    echo ""
+    warn "opencode.json plugin-array drift detected."
+    warn "  Re-run with: ./upgrade.sh --repair-opencode-json"
+    warn "  (Drift is common on installs that predate #51 or v0.4.0.)"
+  fi
+
   echo ""
   _print_bridge_restart_hint
   _print_verify_block
@@ -915,6 +1084,7 @@ _print_verify_block() {
 # ============================================================================
 
 sync_chat_bridge_config
+check_opencode_json_drift
 sync_skills
 regenerate_agents_md
 update_chat_bridge_systemd
