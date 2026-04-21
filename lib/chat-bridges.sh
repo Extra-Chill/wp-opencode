@@ -88,6 +88,18 @@ bridge_binaries() {
   esac
 }
 
+# Human-readable display name for prose in summary / restart hints.
+# Multi-service bridges use "X stack" to signal that the restart command
+# hits multiple services.
+bridge_display_name() {
+  case "$1" in
+    kimaki)     echo "kimaki" ;;
+    cc-connect) echo "cc-connect" ;;
+    telegram)   echo "telegram stack" ;;
+    *) return 1 ;;
+  esac
+}
+
 # ===========================================================================
 # Detection — returns first matching bridge name on stdout, or empty
 # ===========================================================================

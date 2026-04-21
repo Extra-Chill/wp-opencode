@@ -910,97 +910,63 @@ print_summary() {
   _print_verify_block
 }
 
+# Resolve the runtime environment for restart/verify output.
+# Returns: local-launchd | local-manual | vps
+_resolve_bridge_env() {
+  local bridge="$1" label
+  if [ "$LOCAL_MODE" != true ]; then
+    echo "vps"
+    return
+  fi
+  for label in $(bridge_launchd_labels "$bridge"); do
+    if [ -f "$HOME/Library/LaunchAgents/${label}.plist" ]; then
+      echo "local-launchd"
+      return
+    fi
+  done
+  echo "local-manual"
+}
+
 # Print the correct restart command for the detected chat bridge × environment.
 _print_bridge_restart_hint() {
-  case "$CHAT_BRIDGE" in
-    kimaki)
-      if [ "$LOCAL_MODE" = true ]; then
-        warn "Restart kimaki when ready (active chat sessions will die):"
-        if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ]; then
-          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.kimaki"
-        else
-          warn "  Stop your kimaki process and re-run: cd $SITE_PATH && kimaki"
-        fi
-      else
-        warn "Restart kimaki when ready: systemctl restart kimaki"
-        warn "  (Active sessions will die when you restart.)"
-      fi
-      echo ""
-      ;;
-    cc-connect)
-      if [ "$LOCAL_MODE" = true ]; then
-        warn "Restart cc-connect when ready (active chat sessions will die):"
-        if [ -f "$HOME/Library/LaunchAgents/com.wp.cc-connect.plist" ]; then
-          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.cc-connect"
-        else
-          warn "  Stop your cc-connect process and re-run: cd $SITE_PATH && cc-connect"
-        fi
-      else
-        warn "Restart cc-connect when ready: systemctl restart cc-connect"
-        warn "  (Active sessions will die when you restart.)"
-      fi
-      echo ""
-      ;;
-    telegram)
-      if [ "$LOCAL_MODE" = true ]; then
-        warn "Restart telegram stack when ready (active chat sessions will die):"
-        if [ -f "$HOME/Library/LaunchAgents/com.wp.opencode-serve.plist" ]; then
-          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.opencode-serve"
-          warn "  launchctl kickstart -k gui/$(id -u)/com.wp.opencode-telegram"
-        else
-          warn "  Stop your opencode serve + opencode-telegram processes and restart manually"
-        fi
-      else
-        warn "Restart telegram stack when ready:"
-        warn "  systemctl restart opencode-serve opencode-telegram"
-        warn "  (Active sessions will die when you restart.)"
-      fi
-      echo ""
-      ;;
-  esac
+  [ -n "$CHAT_BRIDGE" ] || return 0
+
+  local env display cmd
+  env=$(_resolve_bridge_env "$CHAT_BRIDGE")
+  display=$(bridge_display_name "$CHAT_BRIDGE")
+
+  warn "Restart $display when ready (active chat sessions will die):"
+  while IFS= read -r cmd; do
+    warn "  $cmd"
+  done < <(bridge_restart_cmd "$CHAT_BRIDGE" "$env")
+  echo ""
 }
 
 _print_verify_block() {
   log "Verify:"
-  case "$CHAT_BRIDGE" in
-    kimaki)
-      if [ "$LOCAL_MODE" = true ]; then
-        if [ -f "$HOME/Library/LaunchAgents/com.wp.kimaki.plist" ]; then
-          log "  launchctl print gui/$(id -u)/com.wp.kimaki | head -20   # chat bridge status"
-        else
-          log "  pgrep -fl kimaki                                        # chat bridge status"
-        fi
-      else
-        log "  systemctl status kimaki                                  # chat bridge status"
-      fi
-      local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
-      log "  ls $PLUGINS_DIR   # plugin versions"
-      ;;
-    cc-connect)
-      if [ "$LOCAL_MODE" = true ]; then
-        if [ -f "$HOME/Library/LaunchAgents/com.wp.cc-connect.plist" ]; then
-          log "  launchctl print gui/$(id -u)/com.wp.cc-connect | head -20   # chat bridge status"
-        else
-          log "  pgrep -fl cc-connect                                        # chat bridge status"
-        fi
-      else
-        log "  systemctl status cc-connect                                 # chat bridge status"
-      fi
-      log "  cc-connect --version                                        # binary version"
-      ;;
-    telegram)
-      if [ "$LOCAL_MODE" = true ]; then
-        log "  launchctl print gui/$(id -u)/com.wp.opencode-serve | head -20     # opencode-serve status"
-        log "  launchctl print gui/$(id -u)/com.wp.opencode-telegram | head -20  # telegram bot status"
-      else
-        log "  systemctl status opencode-serve opencode-telegram           # chat bridge status"
-      fi
-      log "  opencode-telegram --version                                 # binary version"
-      ;;
-    *)
-      log "  (no chat bridge detected)"
-      ;;
-  esac
+
+  if [ -z "$CHAT_BRIDGE" ]; then
+    log "  (no chat bridge detected)"
+  else
+    local env primary cmd
+    env=$(_resolve_bridge_env "$CHAT_BRIDGE")
+    primary=$(bridge_binaries "$CHAT_BRIDGE" | awk '{print $1}')
+
+    while IFS= read -r cmd; do
+      log "  $cmd   # chat bridge status"
+    done < <(bridge_verify_cmd "$CHAT_BRIDGE" "$env")
+
+    case "$CHAT_BRIDGE" in
+      kimaki)
+        local PLUGINS_DIR="${RESOLVED_KIMAKI_PLUGINS_DIR:-/opt/kimaki-config/plugins}"
+        log "  ls $PLUGINS_DIR   # plugin versions"
+        ;;
+      *)
+        log "  $primary --version   # binary version"
+        ;;
+    esac
+  fi
+
   log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"
   log "  ls $(runtime_skills_dir)              # installed skills"
 }
