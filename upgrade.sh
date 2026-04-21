@@ -823,38 +823,21 @@ _update_telegram_systemd() {
   local SERVE_UNIT="/etc/systemd/system/opencode-serve.service"
   local TG_UNIT="/etc/systemd/system/opencode-telegram.service"
 
-  local OPENCODE_BIN TG_BIN SERVE_ENV_FILE TG_CONFIG_DIR
+  local OPENCODE_BIN TELEGRAM_BIN SERVE_ENV_FILE TELEGRAM_CONFIG_DIR
   OPENCODE_BIN=$(which opencode 2>/dev/null || echo "/usr/bin/opencode")
-  TG_BIN=$(which opencode-telegram 2>/dev/null || echo "/usr/bin/opencode-telegram")
+  TELEGRAM_BIN=$(which opencode-telegram 2>/dev/null || echo "/usr/bin/opencode-telegram")
   SERVE_ENV_FILE="$SERVICE_HOME/.config/opencode-serve.env"
-  TG_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
+  TELEGRAM_CONFIG_DIR="$SERVICE_HOME/.config/opencode-telegram-bot"
+
+  local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin"
 
   # --- opencode-serve.service ---
   if [ -f "$SERVE_UNIT" ]; then
-    local SERVE_CURRENT_ENV
+    local SERVE_CURRENT_ENV SERVE_MERGED_ENV SERVE_NEW
     SERVE_CURRENT_ENV=$(grep '^Environment=' "$SERVE_UNIT" || true)
-    local SERVE_TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin"
-    local SERVE_MERGED_ENV
-    SERVE_MERGED_ENV=$(_merge_systemd_env_lines "$SERVE_CURRENT_ENV" "$SERVE_TEMPLATE_ENV")
-
-    local SERVE_NEW="[Unit]
-Description=OpenCode Server (wp-coding-agents)
-After=network.target
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-$SERVE_MERGED_ENV
-EnvironmentFile=-$SERVE_ENV_FILE
-ExecStart=$OPENCODE_BIN serve
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
-
+    SERVE_MERGED_ENV=$(_merge_systemd_env_lines "$SERVE_CURRENT_ENV" "$TEMPLATE_ENV")
+    SERVE_NEW=$(bridge_render_systemd telegram opencode-serve.service "$SERVE_MERGED_ENV")
     _smart_update_systemd_unit "$SERVE_UNIT" "$SERVE_NEW" "opencode-serve.service"
   else
     warn "  $SERVE_UNIT does not exist — skipping"
@@ -862,31 +845,10 @@ WantedBy=multi-user.target"
 
   # --- opencode-telegram.service ---
   if [ -f "$TG_UNIT" ]; then
-    local TG_CURRENT_ENV
+    local TG_CURRENT_ENV TG_MERGED_ENV TG_NEW
     TG_CURRENT_ENV=$(grep '^Environment=' "$TG_UNIT" || true)
-    local TG_TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin"
-    local TG_MERGED_ENV
-    TG_MERGED_ENV=$(_merge_systemd_env_lines "$TG_CURRENT_ENV" "$TG_TEMPLATE_ENV")
-
-    local TG_NEW="[Unit]
-Description=OpenCode Telegram Bot (wp-coding-agents)
-After=network.target opencode-serve.service
-Requires=opencode-serve.service
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-$TG_MERGED_ENV
-EnvironmentFile=$TG_CONFIG_DIR/.env
-ExecStart=$TG_BIN start
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
-
+    TG_MERGED_ENV=$(_merge_systemd_env_lines "$TG_CURRENT_ENV" "$TEMPLATE_ENV")
+    TG_NEW=$(bridge_render_systemd telegram opencode-telegram.service "$TG_MERGED_ENV")
     _smart_update_systemd_unit "$TG_UNIT" "$TG_NEW" "opencode-telegram.service"
   else
     warn "  $TG_UNIT does not exist — skipping"

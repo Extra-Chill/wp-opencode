@@ -288,75 +288,8 @@ _install_telegram_launchd() {
 
   run_cmd mkdir -p "$PLIST_DIR"
 
-  SERVE_PLIST_CONTENT="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-    <key>Label</key>
-    <string>$SERVE_PLIST_LABEL</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$OPENCODE_BIN</string>
-        <string>serve</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>$TELEGRAM_LOG_DIR/opencode-serve.log</string>
-    <key>StandardErrorPath</key>
-    <string>$TELEGRAM_LOG_DIR/opencode-serve.error.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-        <key>HOME</key>
-        <string>$SERVICE_HOME</string>$(if [ -n "$OPENCODE_MODEL" ]; then echo "
-        <key>OPENCODE_MODEL</key>
-        <string>$OPENCODE_MODEL</string>"; fi)
-    </dict>
-</dict>
-</plist>"
-
-  write_file "$SERVE_PLIST" "$SERVE_PLIST_CONTENT"
-
-  TELEGRAM_PLIST_CONTENT="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-    <key>Label</key>
-    <string>$TELEGRAM_PLIST_LABEL</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$TELEGRAM_BIN</string>
-        <string>start</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>$TELEGRAM_LOG_DIR/opencode-telegram.log</string>
-    <key>StandardErrorPath</key>
-    <string>$TELEGRAM_LOG_DIR/opencode-telegram.error.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-        <key>HOME</key>
-        <string>$SERVICE_HOME</string>$(if [ -n "$TELEGRAM_BOT_TOKEN" ]; then echo "
-        <key>TELEGRAM_BOT_TOKEN</key>
-        <string>$TELEGRAM_BOT_TOKEN</string>"; fi)$(if [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then echo "
-        <key>TELEGRAM_ALLOWED_USER_ID</key>
-        <string>$TELEGRAM_ALLOWED_USER_ID</string>"; fi)
-        <key>OPENCODE_API_URL</key>
-        <string>http://localhost:4096</string>
-    </dict>
-</dict>
-</plist>"
-
-  write_file "$TELEGRAM_PLIST" "$TELEGRAM_PLIST_CONTENT"
+  write_file "$SERVE_PLIST" "$(bridge_render_launchd telegram "$SERVE_PLIST_LABEL")"
+  write_file "$TELEGRAM_PLIST" "$(bridge_render_launchd telegram "$TELEGRAM_PLIST_LABEL")"
 
   if [ "$DRY_RUN" = false ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ALLOWED_USER_ID" ]; then
     launchctl bootout "gui/$(id -u)" "$SERVE_PLIST" 2>/dev/null || true
@@ -382,48 +315,16 @@ _install_telegram_launchd() {
 }
 
 _install_telegram_systemd() {
-  OPENCODE_SERVE_CONFIG="[Unit]
-Description=OpenCode Server (wp-coding-agents)
-After=network.target
+  local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin"
 
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-EnvironmentFile=-$SERVE_ENV_FILE
-ExecStart=$OPENCODE_BIN serve
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
-
-  write_file "/etc/systemd/system/opencode-serve.service" "$OPENCODE_SERVE_CONFIG"
+  write_file "/etc/systemd/system/opencode-serve.service" \
+    "$(bridge_render_systemd telegram opencode-serve.service "$ENV_BLOCK")"
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable opencode-serve
 
-  TELEGRAM_SYSTEMD_CONFIG="[Unit]
-Description=OpenCode Telegram Bot (wp-coding-agents)
-After=network.target opencode-serve.service
-Requires=opencode-serve.service
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-Environment=HOME=$SERVICE_HOME
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-EnvironmentFile=$TELEGRAM_CONFIG_DIR/.env
-ExecStart=$TELEGRAM_BIN start
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
-
-  write_file "/etc/systemd/system/opencode-telegram.service" "$TELEGRAM_SYSTEMD_CONFIG"
+  write_file "/etc/systemd/system/opencode-telegram.service" \
+    "$(bridge_render_systemd telegram opencode-telegram.service "$ENV_BLOCK")"
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable opencode-telegram
 }
