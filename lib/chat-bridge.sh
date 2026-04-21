@@ -160,33 +160,7 @@ _install_cc_connect_launchd() {
   run_cmd mkdir -p "$CC_PLIST_DIR"
   _write_cc_config
 
-  CC_PLIST_CONTENT="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-    <key>Label</key>
-    <string>$CC_PLIST_LABEL</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$CC_BIN</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$SITE_PATH</string>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>$CC_DATA_DIR/cc-connect.log</string>
-    <key>StandardErrorPath</key>
-    <string>$CC_DATA_DIR/cc-connect.error.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    </dict>
-</dict>
-</plist>"
-
-  write_file "$CC_PLIST" "$CC_PLIST_CONTENT"
+  write_file "$CC_PLIST" "$(bridge_render_launchd cc-connect "$CC_PLIST_LABEL")"
 
   if [ "$DRY_RUN" = false ]; then
     launchctl bootout "gui/$(id -u)" "$CC_PLIST" 2>/dev/null || true
@@ -204,11 +178,11 @@ _install_cc_connect_systemd() {
   run_cmd mkdir -p "$CC_DATA_DIR"
   _write_cc_config
 
-  ENV_LINES="Environment=HOME=$SERVICE_HOME"
-  ENV_LINES="$ENV_LINES\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin"
-
+  local ENV_BLOCK="Environment=HOME=$SERVICE_HOME
+Environment=PATH=/usr/local/bin:/usr/bin:/bin"
   if [ -n "${CC_CONNECT_TOKEN:-}" ]; then
-    ENV_LINES="$ENV_LINES\nEnvironment=CC_CONNECT_TOKEN=$CC_CONNECT_TOKEN"
+    ENV_BLOCK="$ENV_BLOCK
+Environment=CC_CONNECT_TOKEN=$CC_CONNECT_TOKEN"
   fi
 
   if [ "$DRY_RUN" = true ]; then
@@ -217,23 +191,8 @@ _install_cc_connect_systemd() {
     CC_BIN=$(which cc-connect 2>/dev/null || echo "/usr/bin/cc-connect")
   fi
 
-  SYSTEMD_CONFIG="[Unit]
-Description=cc-connect Chat Bridge (wp-coding-agents)
-After=network.target
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-$(echo -e "$ENV_LINES")
-ExecStart=$CC_BIN
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
-
-  write_file "/etc/systemd/system/cc-connect.service" "$SYSTEMD_CONFIG"
+  write_file "/etc/systemd/system/cc-connect.service" \
+    "$(bridge_render_systemd cc-connect cc-connect.service "$ENV_BLOCK")"
   run_cmd systemctl daemon-reload
   run_cmd systemctl enable cc-connect
 }

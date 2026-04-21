@@ -802,29 +802,17 @@ _update_cc_connect_systemd() {
   local CC_BIN
   CC_BIN=$(which cc-connect 2>/dev/null || echo "/usr/bin/cc-connect")
 
-  # Mirrors _install_cc_connect_systemd in lib/chat-bridge.sh.
-  # CC_CONNECT_TOKEN is only added if setup originally set it (lives in current env).
+  # CC_CONNECT_TOKEN lives in the existing unit's env if setup originally
+  # set it; mandatory template omits it and _merge_systemd_env_lines
+  # preserves host-specific keys.
   local TEMPLATE_ENV="Environment=HOME=$SERVICE_HOME
 Environment=PATH=/usr/local/bin:/usr/bin:/bin"
 
   local MERGED_ENV
   MERGED_ENV=$(_merge_systemd_env_lines "$CURRENT_ENV" "$TEMPLATE_ENV")
 
-  local NEW_UNIT="[Unit]
-Description=cc-connect Chat Bridge (wp-coding-agents)
-After=network.target
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$SITE_PATH
-$MERGED_ENV
-ExecStart=$CC_BIN
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target"
+  local NEW_UNIT
+  NEW_UNIT=$(bridge_render_systemd cc-connect cc-connect.service "$MERGED_ENV")
 
   _smart_update_systemd_unit "$UNIT_FILE" "$NEW_UNIT" "cc-connect.service"
 }
