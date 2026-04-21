@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1] - 2026-04-20
+
+### Fixed
+- skip claude-auth on kimaki + upgrade.sh repair path for existing installs
+- run detect_environment before chat-bridge detection (closes #54)
+- add cc-connect + telegram chat-bridge support (closes #48)
+- make upgrade.sh + skill env-agnostic for local installs
+
 ## [0.4.0] - 2026-04-19
 
 ### Added
