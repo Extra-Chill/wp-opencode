@@ -55,6 +55,19 @@ detect_wp_cmd() {
 WP_CMD=$(detect_wp_cmd) || exit 0
 
 # ---------------------------------------------------------------------------
+# Refresh composable files before computing @ includes
+# ---------------------------------------------------------------------------
+# SectionRegistry callbacks can read live state (Intelligence sources, skill
+# inventory, etc.). DM regenerates composable files when their feeder state
+# fires a registered invalidation hook, but those hooks only run inside a
+# WordPress request. State changed via direct DB edits, cron, or external
+# processes would leave the on-disk file stale. Running `agent compose` here
+# guarantees AGENTS.md (and any sibling composable files) match live state
+# at the moment the coding-agent session starts.
+
+$WP_CMD datamachine agent compose >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
 # Query active agents from Data Machine
 # ---------------------------------------------------------------------------
 
