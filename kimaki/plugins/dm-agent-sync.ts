@@ -41,6 +41,15 @@ const dmAgentSync: Plugin = async ({ $ }) => {
   return {
     config: async (config) => {
       try {
+        // Refresh composable files before the session reads them.
+        // DM SectionRegistry callbacks render live state (configured sources,
+        // skills, config). DM's own invalidation hooks cover state changes
+        // that happen inside a WordPress request, but cron jobs, direct DB
+        // edits, or other external processes would leave AGENTS.md stale.
+        // Running compose here guarantees the file matches live state at the
+        // moment OpenCode loads the session prompt.
+        await $`wp datamachine agent compose --allow-root 2>/dev/null`.quiet().nothrow();
+
         // Query all agents from Data Machine.
         const agentsRaw = await $`wp datamachine agents list --format=json --allow-root 2>/dev/null`.quiet().nothrow().text();
 
