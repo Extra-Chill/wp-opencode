@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0] - 2026-04-23
+
+### Added
+- populate every detected runtime's skills dir
+
+### Fixed
+- restore wp-coding-agents skills on every kimaki restart
+- fix(dm-context-filter): strip project discovery from system prompt
+
 ## [0.5.0] - 2026-04-22
 
 ### Added
