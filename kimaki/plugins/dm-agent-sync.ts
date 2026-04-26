@@ -48,7 +48,7 @@ const dmAgentSync: Plugin = async ({ $ }) => {
         // edits, or other external processes would leave AGENTS.md stale.
         // Running compose here guarantees the file matches live state at the
         // moment OpenCode loads the session prompt.
-        await $`wp datamachine agent compose --allow-root 2>/dev/null`.quiet().nothrow();
+        await $`wp datamachine memory compose --allow-root 2>/dev/null`.quiet().nothrow();
 
         // Query all agents from Data Machine.
         const agentsRaw = await $`wp datamachine agents list --format=json --allow-root 2>/dev/null`.quiet().nothrow().text();
