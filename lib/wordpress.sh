@@ -47,20 +47,88 @@ install_plugin() {
       warn "Could not pull latest $slug — check for local changes"
   fi
 
-  # Install dependencies even if plugin was pre-cloned.
-  if [ -f "$plugin_dir/composer.json" ] && { [ ! -d "$plugin_dir/vendor" ] || [ "$DRY_RUN" = true ]; }; then
+  install_plugin_dependencies "$slug" "$plugin_dir" false
+
+  activate_plugin "$slug"
+  fix_ownership "$plugin_dir"
+}
+
+# Install/build plugin dependencies. Set force=true after a code update so lockfile
+# or asset changes are applied even when vendor/node_modules already exist.
+install_plugin_dependencies() {
+  local slug="$1"
+  local plugin_dir="$2"
+  local force="${3:-false}"
+
+  if [ -f "$plugin_dir/composer.json" ] && { [ "$force" = true ] || [ ! -d "$plugin_dir/vendor" ] || [ "$DRY_RUN" = true ]; }; then
     run_cmd env COMPOSER_ALLOW_SUPERUSER=1 composer install \
       --no-dev --no-interaction --working-dir="$plugin_dir" || \
       warn "Composer failed, some $slug features may not work"
   fi
-  if [ -f "$plugin_dir/package.json" ] && { [ ! -d "$plugin_dir/node_modules" ] || [ "$DRY_RUN" = true ]; }; then
+  if [ -f "$plugin_dir/package.json" ] && { [ "$force" = true ] || [ ! -d "$plugin_dir/node_modules" ] || [ "$DRY_RUN" = true ]; }; then
     log "Building $slug JS assets..."
     run_cmd npm install --prefix "$plugin_dir" || \
       warn "npm install failed for $slug"
     run_cmd npm run build --prefix "$plugin_dir" || \
       warn "npm build failed for $slug — admin pages may not work"
   fi
+}
 
+# Update a git-installed plugin to its latest version tag.
+update_plugin_to_latest_tag() {
+  local slug="$1"
+  local repo_url="$2"
+  local plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
+
+  if [ ! -d "$plugin_dir" ]; then
+    log "Plugin $slug missing — installing before tag checkout..."
+    install_plugin "$slug" "$repo_url"
+  fi
+
+  if [ ! -d "$plugin_dir/.git" ]; then
+    warn "Plugin $slug is not a git checkout — skipping tagged release update"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    echo -e "${BLUE}[dry-run]${NC} git -C $plugin_dir fetch --tags --force origin"
+    echo -e "${BLUE}[dry-run]${NC} git -C $plugin_dir checkout --detach <latest-tag>"
+    echo -e "${BLUE}[dry-run]${NC} Would rebuild dependencies for $slug if composer.json/package.json exist"
+    return 0
+  fi
+
+  if [ -n "$(git -C "$plugin_dir" status --porcelain 2>/dev/null)" ]; then
+    warn "Plugin $slug has local changes — skipping tagged release update"
+    return 0
+  fi
+
+  git -C "$plugin_dir" fetch --tags --force origin || {
+    warn "Could not fetch tags for $slug"
+    return 0
+  }
+
+  local latest_tag
+  latest_tag=$(git -C "$plugin_dir" tag --sort=-v:refname | grep -E '^v?[0-9]' | head -n 1)
+  if [ -z "$latest_tag" ]; then
+    warn "No version tags found for $slug — skipping"
+    return 0
+  fi
+
+  local current_ref
+  current_ref=$(git -C "$plugin_dir" describe --tags --exact-match 2>/dev/null || git -C "$plugin_dir" rev-parse --short HEAD)
+
+  if [ "$current_ref" = "$latest_tag" ]; then
+    log "Plugin $slug already at latest tag ($latest_tag)"
+  else
+    log "Updating plugin $slug: $current_ref → $latest_tag"
+    git -C "$plugin_dir" checkout --detach "$latest_tag" || {
+      warn "Could not checkout $latest_tag for $slug"
+      return 0
+    }
+    UPDATED_ITEMS+=("$slug $latest_tag")
+  fi
+
+  install_plugin_dependencies "$slug" "$plugin_dir" true
   activate_plugin "$slug"
   fix_ownership "$plugin_dir"
 }

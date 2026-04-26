@@ -26,6 +26,17 @@ install_data_machine() {
   fi
 }
 
+upgrade_data_machine_plugins() {
+  if [ "$INSTALL_DATA_MACHINE" != true ]; then
+    log "Phase 2: Skipping Data Machine plugins (--no-data-machine)"
+    return
+  fi
+
+  log "Phase 2: Updating Data Machine plugins to latest tagged releases..."
+  update_plugin_to_latest_tag data-machine https://github.com/Extra-Chill/data-machine.git
+  update_plugin_to_latest_tag data-machine-code https://github.com/Extra-Chill/data-machine-code.git
+}
+
 create_dm_agent() {
   log "Phase 4.5: Creating Data Machine agent..."
 

@@ -8,6 +8,8 @@ compatibility: "Requires a wp-coding-agents repo clone and an existing setup. Wo
 
 `upgrade.sh` already auto-detects the environment, picks the chat bridge, prints a diff in dry-run, and emits the right verify + restart commands in its summary block. This skill exists for the **policy boundary** the script can't enforce on its own.
 
+By default it also updates the setup-installed Data Machine plugins (`data-machine`, `data-machine-code`) to their latest version tags when those plugins are git checkouts. Use `--skip-plugins` to preserve the previous no-plugin-update behavior.
+
 ## When to use
 
 The user says something like:
@@ -36,7 +38,7 @@ The user says something like:
 
 4. **Tell the user to restart the chat bridge themselves.** Active chat sessions die on restart, so the user picks the moment.
 
-Run `./upgrade.sh --help` for scope flags (`--kimaki-only`, `--skills-only`, `--agents-md-only`, `--repair-opencode-json`, etc.) and the full list of what the script touches and never touches.
+Run `./upgrade.sh --help` for scope flags (`--plugins-only`, `--skip-plugins`, `--kimaki-only`, `--skills-only`, `--agents-md-only`, `--repair-opencode-json`, etc.) and the full list of what the script touches and never touches.
 
 ## Never do
 

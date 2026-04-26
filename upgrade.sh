@@ -6,7 +6,8 @@
 # Phases:
 #   1. Detect environment (auto-detects local vs VPS, runtime, chat bridge —
 #      supports kimaki, cc-connect, telegram).
-#   2. Sync chat-bridge config (dispatches per bridge)
+#   2. Update setup-installed Data Machine plugins to latest tagged releases.
+#   3. Sync chat-bridge config (dispatches per bridge)
 #        kimaki:
 #          VPS:   /opt/kimaki-config (plugins + post-upgrade.sh + kill list)
 #          Local: $(npm root -g)/kimaki/plugins for plugins,
@@ -17,22 +18,23 @@
 #          reminds user to `npm update -g cc-connect`.
 #        telegram: no per-install artifacts; reports binary versions and
 #          reminds user to `npm update -g @grinev/opencode-telegram-bot`.
-#   3. Sync agent skills (WordPress + Data Machine)
-#   4. Regenerate AGENTS.md via Data Machine compose
-#   5. Smart systemd update (VPS only; dispatches per bridge)
+#   4. Sync agent skills (WordPress + Data Machine)
+#   5. Regenerate AGENTS.md via Data Machine compose
+#   6. Smart systemd update (VPS only; dispatches per bridge)
 #        kimaki     → kimaki.service
 #        cc-connect → cc-connect.service
 #        telegram   → opencode-serve.service + opencode-telegram.service
 #      Each unit's existing Environment= lines are preserved (host custom
 #      values, secrets) while structural lines are refreshed from the same
 #      template the install path uses (bridges/<name>.sh::bridge_render_*).
-#   6. Re-apply opencode-claude-auth PascalCase patch (opencode runtime only)
-#   7. Summary — prints the right restart + verify commands per bridge × env.
+#   7. Re-apply opencode-claude-auth PascalCase patch (opencode runtime only)
+#   8. Summary — prints the right restart + verify commands per bridge × env.
 #
 # Usage:
 #   ./upgrade.sh                 # run all phases (auto-detects environment)
 #   ./upgrade.sh --dry-run       # preview without changes
 #   ./upgrade.sh --kimaki-only   # only sync kimaki config + plugins
+#   ./upgrade.sh --plugins-only  # only update Data Machine plugins
 #   ./upgrade.sh --skills-only   # only sync skills
 #   ./upgrade.sh --agents-md-only  # only regenerate AGENTS.md
 #   ./upgrade.sh --local --wp-path <path>  # local install (auto on macOS)
@@ -63,8 +65,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Source shared modules (common, detect needed for environment resolution;
-# wordpress is needed for wp_cmd helper used by compose).
-for lib in common detect wordpress skills; do
+# wordpress is needed for wp_cmd helper used by compose and plugin updates).
+for lib in common detect wordpress data-machine skills; do
   source "$SCRIPT_DIR/lib/${lib}.sh"
 done
 
@@ -86,15 +88,18 @@ done
 
 DRY_RUN=false
 KIMAKI_ONLY=false
+PLUGINS_ONLY=false
 SKILLS_ONLY=false
 AGENTS_MD_ONLY=false
 REPAIR_OPENCODE_JSON=false
+SKIP_PLUGINS=false
 SHOW_HELP=false
 
 # Defaults setup.sh expects (detect.sh reads these)
 LOCAL_MODE=false
 SKIP_DEPS=true
 SKIP_SSL=true
+INSTALL_DATA_MACHINE=true
 INSTALL_CHAT=true
 INSTALL_SKILLS=true
 RUN_AS_ROOT=true
@@ -110,9 +115,11 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --dry-run)       DRY_RUN=true; shift ;;
     --kimaki-only)   KIMAKI_ONLY=true; shift ;;
+    --plugins-only)  PLUGINS_ONLY=true; shift ;;
     --skills-only)   SKILLS_ONLY=true; shift ;;
     --agents-md-only) AGENTS_MD_ONLY=true; shift ;;
     --repair-opencode-json) REPAIR_OPENCODE_JSON=true; shift ;;
+    --skip-plugins)  SKIP_PLUGINS=true; shift ;;
     --runtime)       RUNTIME="$2"; shift 2 ;;
     --wp-path)       EXISTING_WP="$2"; shift 2 ;;
     --local)         LOCAL_MODE=true; RUN_AS_ROOT=false; shift ;;
@@ -133,8 +140,10 @@ USAGE:
   ./upgrade.sh --kimaki-only    Only sync chat-bridge config (kept name for
                                 backwards compat — also handles cc-connect
                                 and telegram when they are the detected bridge)
+  ./upgrade.sh --plugins-only   Only update setup-installed Data Machine plugins
   ./upgrade.sh --skills-only    Only sync agent skills
   ./upgrade.sh --agents-md-only Only regenerate AGENTS.md
+  ./upgrade.sh --skip-plugins   Skip Data Machine plugin updates during full run
   ./upgrade.sh --repair-opencode-json
                                 Full reconciliation of opencode.json:
                                 - plugin array → match current setup exactly
@@ -165,6 +174,9 @@ NEVER TOUCHED:
   - Running chat-bridge service (never restarted automatically)
 
 DEFAULT TOUCHES:
+  - data-machine and data-machine-code — updates setup-installed git
+    checkouts to their latest version tags. Non-git plugin directories are
+    skipped. Use --skip-plugins to skip this phase.
   - opencode.json — additive repair. Adds managed plugin entries the
     user is missing (dm-context-filter.ts, dm-agent-sync.ts,
     opencode-claude-auth@latest — whichever apply to the detected runtime
@@ -179,6 +191,10 @@ OPT-IN TOUCHES:
     so the array matches exactly what setup would produce today.
 HELP
   exit 0
+fi
+
+if [ "$PLUGINS_ONLY" = true ] && [ "$SKIP_PLUGINS" = true ]; then
+  error "Cannot combine --plugins-only and --skip-plugins"
 fi
 
 # ============================================================================
@@ -284,21 +300,35 @@ _run_filter_active() {
   # Usage: _run_filter_active <flag_name>   (e.g. KIMAKI_ONLY)
   local phase="$1"
   # If any --*-only flag is set, only that one runs
-  if [ "$KIMAKI_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ]; then
+  if [ "$KIMAKI_ONLY" = true ] || [ "$PLUGINS_ONLY" = true ] || [ "$SKILLS_ONLY" = true ] || [ "$AGENTS_MD_ONLY" = true ]; then
     case "$phase" in
-      kimaki)    [ "$KIMAKI_ONLY" = true ] ;;
-      skills)    [ "$SKILLS_ONLY" = true ] ;;
-      agents-md) [ "$AGENTS_MD_ONLY" = true ] ;;
+      kimaki)    [ "$KIMAKI_ONLY" = true ]; return $? ;;
+      plugins)   [ "$PLUGINS_ONLY" = true ]; return $? ;;
+      skills)    [ "$SKILLS_ONLY" = true ]; return $? ;;
+      agents-md) [ "$AGENTS_MD_ONLY" = true ]; return $? ;;
       systemd|patch) return 1 ;;  # infrastructure phases skipped in *-only modes
       *)         return 1 ;;
     esac
-  else
-    return 0
   fi
+
+  if [ "$phase" = plugins ] && [ "$SKIP_PLUGINS" = true ]; then
+    return 1
+  fi
+
+  return 0
 }
 
 # ============================================================================
-# Phase 2: Sync chat-bridge config
+# Phase 2: Update Data Machine plugins
+# ============================================================================
+
+update_data_machine_plugins() {
+  _run_filter_active plugins || return 0
+  upgrade_data_machine_plugins
+}
+
+# ============================================================================
+# Phase 3: Sync chat-bridge config
 #   kimaki    → plugins + post-upgrade.sh + skills-kill-list (see below).
 #   cc-connect → no per-install artifacts beyond the npm package; config.toml
 #                is user-owned. Report version and remind user to
@@ -312,12 +342,12 @@ sync_chat_bridge_config() {
   _run_filter_active kimaki || return 0
 
   if [ -z "$CHAT_BRIDGE" ]; then
-    log "Phase 2: Skipping (no chat bridge detected)"
+    log "Phase 3: Skipping (no chat bridge detected)"
     return
   fi
 
   if ! bridge_has_hook sync_config; then
-    warn "Phase 2: $CHAT_BRIDGE does not implement bridge_sync_config — skipping"
+    warn "Phase 3: $CHAT_BRIDGE does not implement bridge_sync_config — skipping"
     return
   fi
 
@@ -326,7 +356,7 @@ sync_chat_bridge_config() {
 
 
 # ============================================================================
-# Phase 2b: Detect + optionally repair opencode.json drift
+# Phase 3b: Detect + optionally repair opencode.json drift
 #
 # opencode.json is user-owned (model settings, agent prompt files, permissions,
 # etc.), so this phase is read-only by default. It compares the file against
@@ -346,6 +376,8 @@ sync_chat_bridge_config() {
 # ============================================================================
 
 check_opencode_json_drift() {
+  _run_filter_active opencode-json || return 0
+
   # Runs whenever opencode.json exists on disk. Default behaviour is
   # additive repair: managed plugin entries the user is missing get added
   # (dm-context-filter.ts, dm-agent-sync.ts, opencode-claude-auth@latest —
@@ -372,7 +404,7 @@ check_opencode_json_drift() {
 
   local HELPER="$SCRIPT_DIR/lib/repair-opencode-json.py"
   if [ ! -f "$HELPER" ]; then
-    warn "Phase 2b: $HELPER not found — skipping drift check"
+    warn "Phase 3b: $HELPER not found — skipping drift check"
     return 0
   fi
 
@@ -397,7 +429,7 @@ check_opencode_json_drift() {
     MODE_LABEL="full repair"
   fi
 
-  log "Phase 2b: opencode.json $MODE_LABEL..."
+  log "Phase 3b: opencode.json $MODE_LABEL..."
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would run: python3 $HELPER --file $OPENCODE_JSON_FILE --runtime $RUNTIME_ARG --chat-bridge $BRIDGE_ARG --kimaki-plugins-dir $PLUGINS_DIR $MODE_FLAG"
@@ -457,7 +489,7 @@ check_opencode_json_drift() {
     drift)
       # Only reachable if we passed neither --apply nor --additive, which
       # shouldn't happen with the dispatch above. Defensive.
-      warn "Phase 2b: opencode.json has drift — $repair_out"
+      warn "Phase 3b: opencode.json has drift — $repair_out"
       OPENCODE_JSON_DRIFT=true
       ;;
     skipped)
@@ -471,13 +503,13 @@ check_opencode_json_drift() {
 }
 
 # ============================================================================
-# Phase 3: Sync agent skills (WordPress + Data Machine)
+# Phase 4: Sync agent skills (WordPress + Data Machine)
 # ============================================================================
 
 sync_skills() {
   _run_filter_active skills || return 0
 
-  log "Phase 3: Syncing agent skills..."
+  log "Phase 4: Syncing agent skills..."
 
   if [ "$DRY_RUN" = true ]; then
     SKILLS_DIR="$(runtime_skills_dir)"
@@ -495,13 +527,13 @@ sync_skills() {
 }
 
 # ============================================================================
-# Phase 4: Regenerate AGENTS.md
+# Phase 5: Regenerate AGENTS.md
 # ============================================================================
 
 regenerate_agents_md() {
   _run_filter_active agents-md || return 0
 
-  log "Phase 4: Regenerating AGENTS.md..."
+  log "Phase 5: Regenerating AGENTS.md..."
 
   local AGENTS_MD="$SITE_PATH/AGENTS.md"
   local BACKUP="$SITE_PATH/AGENTS.md.backup.$TIMESTAMP"
@@ -544,7 +576,7 @@ regenerate_agents_md() {
 }
 
 # ============================================================================
-# Phase 5: Smart systemd update (merges host-specific Environment= lines)
+# Phase 6: Smart systemd update (merges host-specific Environment= lines)
 #   Dispatches to the active bridge's bridge_update_systemd hook (and
 #   bridge_update_launchd on macOS). Each bridge regenerates its unit file(s)
 #   from the same template the install path uses, preserves existing
@@ -556,17 +588,17 @@ update_chat_bridge_systemd() {
   _run_filter_active systemd || return 0
 
   if [ "$LOCAL_MODE" = true ]; then
-    log "Phase 5: Skipping (local mode — no systemd)"
+    log "Phase 6: Skipping (local mode — no systemd)"
     return 0
   fi
 
   if [ -z "$CHAT_BRIDGE" ]; then
-    log "Phase 5: Skipping (no chat bridge detected)"
+    log "Phase 6: Skipping (no chat bridge detected)"
     return 0
   fi
 
   if ! bridge_has_hook update_systemd; then
-    warn "Phase 5: $CHAT_BRIDGE does not implement bridge_update_systemd — skipping"
+    warn "Phase 6: $CHAT_BRIDGE does not implement bridge_update_systemd — skipping"
     return 0
   fi
 
@@ -586,18 +618,18 @@ update_chat_bridge_launchd() {
 }
 
 # ============================================================================
-# Phase 6: Re-apply opencode-claude-auth PascalCase patch
+# Phase 7: Re-apply opencode-claude-auth PascalCase patch
 # ============================================================================
 
 reapply_claude_auth_patch() {
   _run_filter_active patch || return 0
 
   if [ "$RUNTIME" != "opencode" ]; then
-    log "Phase 6: Skipping (runtime is $RUNTIME, not opencode)"
+    log "Phase 7: Skipping (runtime is $RUNTIME, not opencode)"
     return 0
   fi
 
-  log "Phase 6: Re-applying opencode-claude-auth PascalCase patch..."
+  log "Phase 7: Re-applying opencode-claude-auth PascalCase patch..."
 
   if [ ! -f "$SCRIPT_DIR/lib/patch-claude-auth.py" ]; then
     warn "  patch-claude-auth.py not found — skipping"
@@ -622,7 +654,7 @@ reapply_claude_auth_patch() {
 }
 
 # ============================================================================
-# Phase 7: Summary
+# Phase 8: Summary
 # ============================================================================
 
 print_summary() {
@@ -710,6 +742,8 @@ _print_verify_block() {
     fi
   fi
 
+  log "  $WP_CMD plugin get data-machine --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
+  log "  $WP_CMD plugin get data-machine-code --field=version --path=$SITE_PATH $WP_ROOT_FLAG"
   log "  cat $SITE_PATH/AGENTS.md | head -20   # agent instructions"
   log "  ls $(runtime_skills_dir)              # installed skills"
 }
@@ -718,6 +752,7 @@ _print_verify_block() {
 # Execute
 # ============================================================================
 
+update_data_machine_plugins
 sync_chat_bridge_config
 check_opencode_json_drift
 sync_skills
