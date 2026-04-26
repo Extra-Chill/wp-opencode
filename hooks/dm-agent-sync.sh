@@ -65,7 +65,7 @@ WP_CMD=$(detect_wp_cmd) || exit 0
 # guarantees AGENTS.md (and any sibling composable files) match live state
 # at the moment the coding-agent session starts.
 
-$WP_CMD datamachine agent compose >/dev/null 2>&1 || true
+$WP_CMD datamachine memory compose >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # Query active agents from Data Machine

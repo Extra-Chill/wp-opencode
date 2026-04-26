@@ -147,7 +147,7 @@ These work in both VPS and local mode:
 
 - `--kimaki-only` — only sync the chat-bridge config (name kept for backwards compatibility — also handles cc-connect and telegram when they are the detected bridge)
 - `--skills-only` — only refresh agent skills (WordPress/agent-skills + Extra-Chill/data-machine-skills)
-- `--agents-md-only` — only regenerate AGENTS.md via `datamachine agent compose`
+- `--agents-md-only` — only regenerate AGENTS.md via `datamachine memory compose`
 
 ## Never do
 

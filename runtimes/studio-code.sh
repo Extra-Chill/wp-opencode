@@ -300,7 +300,7 @@ runtime_generate_instructions() {
 
   # Compose from Data Machine's SectionRegistry. DM is mandatory.
   if [ "$DRY_RUN" = false ]; then
-    if wp_cmd datamachine agent compose AGENTS.md 2>/dev/null; then
+    if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
       log "AGENTS.md composed from SectionRegistry"
       return
     fi

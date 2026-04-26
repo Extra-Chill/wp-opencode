@@ -737,7 +737,7 @@ regenerate_agents_md() {
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
-    echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine agent compose AGENTS.md $WP_ROOT_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
     return 0
   fi
 
@@ -747,10 +747,10 @@ regenerate_agents_md() {
     log "  Backup: $BACKUP"
   fi
 
-  # `datamachine agent compose AGENTS.md` writes in-place to the registered
+  # `datamachine memory compose AGENTS.md` writes in-place to the registered
   # composable file path. It does NOT accept an arbitrary output path —
   # the filename must be a registered MemoryFileRegistry entry.
-  if (cd "$SITE_PATH" && $WP_CMD datamachine agent compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
+  if (cd "$SITE_PATH" && $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG >/dev/null 2>&1); then
     if [ -f "$BACKUP" ] && cmp -s "$BACKUP" "$AGENTS_MD"; then
       log "  AGENTS.md unchanged"
       rm -f "$BACKUP" 2>/dev/null || true
@@ -763,7 +763,7 @@ regenerate_agents_md() {
       UPDATED_ITEMS+=("AGENTS.md")
     fi
   else
-    warn "  datamachine agent compose failed — AGENTS.md unchanged"
+    warn "  datamachine memory compose failed — AGENTS.md unchanged"
     # Restore from backup if compose wrote a partial file
     if [ -f "$BACKUP" ] && [ -f "$AGENTS_MD" ] && ! cmp -s "$BACKUP" "$AGENTS_MD"; then
       cp "$BACKUP" "$AGENTS_MD"
