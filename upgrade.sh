@@ -511,6 +511,42 @@ _sync_kimaki_config() {
     fi
   fi
 
+  # Run the effective-prompt regression test against the live kimaki install.
+  #
+  # This catches dm-context-filter regressions caused by kimaki upgrades that
+  # reshuffle the system prompt (new sections, new code-fence patterns, new
+  # banned phrases). Renders the prompt from the freshly-synced kimaki npm
+  # package, runs dm-context-filter over it, asserts no banned phrases leak.
+  #
+  # Snapshot drift is a soft warning (the agent context is fine, the test
+  # just needs `--update`). Leak failures are also surfaced as warnings,
+  # not hard errors — upgrade.sh must not block on a test failure when the
+  # underlying sync was successful. The signal is in UPDATED_ITEMS so the
+  # final summary surfaces it.
+  local TEST_SCRIPT="$SCRIPT_DIR/tests/effective-prompt/run.mjs"
+  if [ -f "$TEST_SCRIPT" ] && command -v node &>/dev/null; then
+    if [ "$DRY_RUN" = true ]; then
+      echo -e "${BLUE}[dry-run]${NC} Would run: node $TEST_SCRIPT"
+    else
+      log "  Running effective-prompt regression test..."
+      local TEST_OUT
+      if TEST_OUT=$(node "$TEST_SCRIPT" 2>&1); then
+        # Pull the scenario count from the harness's "OK — N scenario(s)" line.
+        local SCENARIO_LINE
+        SCENARIO_LINE=$(echo "$TEST_OUT" | grep -E "^OK — [0-9]+ scenario" | head -1)
+        log "  effective-prompt: PASS — ${SCENARIO_LINE:-no scenarios reported}"
+        UPDATED_ITEMS+=("ran effective-prompt test (no filter leaks)")
+      else
+        warn "  effective-prompt test FAILED — dm-context-filter may be leaking banned phrases"
+        warn "    rerun with: node $TEST_SCRIPT --verbose"
+        warn "    if drift is intentional: node $TEST_SCRIPT --update"
+        # Surface the failure section of the test output (last ~12 lines).
+        echo "$TEST_OUT" | tail -12 | sed 's/^/    /' >&2
+        UPDATED_ITEMS+=("effective-prompt test FAILED — review filter or refresh snapshots")
+      fi
+    fi
+  fi
+
   log "  Done."
 
   # Export resolved paths so print_summary can reference them
