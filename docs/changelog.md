@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.4] - 2026-04-26
+
+### Changed
+- trim upgrade-wp-coding-agents to policy + procedure
+
 ## [0.6.3] - 2026-04-26
 
 ### Fixed
