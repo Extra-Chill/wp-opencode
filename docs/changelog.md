@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.1] - 2026-04-27
+
+### Fixed
+- strip agent override minion examples
+- update Data Machine plugins by tag
+
 ## [0.7.0] - 2026-04-26
 
 ### Changed
