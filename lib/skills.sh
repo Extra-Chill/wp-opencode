@@ -14,7 +14,8 @@ install_skills_from_repo() {
 
   local tmp_dir
   tmp_dir=$(mktemp -d)
-  if git clone --depth 1 "$repo_url" "$tmp_dir" 2>/dev/null; then
+  rmdir "$tmp_dir" 2>/dev/null || true  # git_clone_with_retry needs a non-existent target on retry.
+  if git_clone_with_retry "$repo_url" "$tmp_dir" --depth 1; then
     for skill_dir in "$tmp_dir"/*/; do
       local skill_name
       skill_name=$(basename "$skill_dir")
