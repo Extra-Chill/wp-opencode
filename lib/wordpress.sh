@@ -69,8 +69,21 @@ install_plugin_dependencies() {
     log "Building $slug JS assets..."
     run_cmd npm install --prefix "$plugin_dir" || \
       warn "npm install failed for $slug"
-    run_cmd npm run build --prefix "$plugin_dir" || \
-      warn "npm build failed for $slug — admin pages may not work"
+
+    # Some plugins' `npm run build` is a wp-env/Docker wrapper around steps
+    # we already ran natively (e.g. mcp-adapter's build is just `composer
+    # install` inside wp-env). Studio installs don't have Docker, so wp-env
+    # fails loudly on the canonical setup path. Skip the build in that
+    # case — the host-side composer install above already produced the
+    # runtime artifacts.
+    local build_script
+    build_script=$(jq -r '.scripts.build // ""' "$plugin_dir/package.json" 2>/dev/null)
+    if echo "$build_script" | grep -q "wp-env" && ! docker info &>/dev/null; then
+      log "Skipping $slug build — script requires wp-env (Docker daemon not reachable)."
+    else
+      run_cmd npm run build --prefix "$plugin_dir" || \
+        warn "npm build failed for $slug — admin pages may not work"
+    fi
   fi
 }
 
