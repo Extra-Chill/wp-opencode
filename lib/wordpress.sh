@@ -31,16 +31,8 @@ install_plugin() {
   local plugin_dir="$SITE_PATH/wp-content/plugins/$slug"
 
   if [ ! -d "$plugin_dir" ] || [ "$DRY_RUN" = true ]; then
-    # Prefer gh CLI for GitHub repos (avoids proxy/auth issues).
-    # Strip .git suffix first, then extract owner/repo — macOS sed doesn't
-    # handle the optional \(\.git\)\{0,1\} correctly (greedy [^/]* eats it).
-    local gh_nwo
-    gh_nwo=$(echo "$repo_url" | sed 's|\.git$||' | sed -n 's|^https://github\.com/\([^/]*/[^/]*\)$|\1|p')
-    if [ -n "$gh_nwo" ] && command -v gh &>/dev/null; then
-      run_cmd gh repo clone "$gh_nwo" "$plugin_dir"
-    else
-      run_cmd git clone "$repo_url" "$plugin_dir"
-    fi
+    git_clone_with_retry "$repo_url" "$plugin_dir" || \
+      warn "Clone failed for $slug — install will continue without it"
   elif [ -d "$plugin_dir/.git" ]; then
     log "Plugin $slug already exists — pulling latest..."
     run_cmd git -C "$plugin_dir" pull --ff-only 2>/dev/null || \
