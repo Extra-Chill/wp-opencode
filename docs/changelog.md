@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.2] - 2026-04-27
+
+### Fixed
+- warn when context filter plugins are missing
+- fall back when data-dir sources are missing
+- skip wp-env-based plugin builds when Docker is unavailable
+- follow Data Machine memory CLI drift
+- data-machine CLI drift breaks SessionStart hook + Phase 4.5 scaffold
+
 ## [0.7.1] - 2026-04-27
 
 ### Fixed
