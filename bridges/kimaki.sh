@@ -467,6 +467,17 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SITE_PATH
 $env_block
+# Reap stray opencode-serve children left behind by the previous kimaki
+# process before starting a fresh one. Each kimaki session spawns its own
+# opencode-serve worker; if kimaki exits uncleanly (crash, OOM, manual
+# kill) those workers are reparented to PID 1 and keep running. They all
+# share \$HOME/.local/share/opencode/auth.json, so concurrent OAuth
+# refreshes race each other — Anthropic rotates the refresh token on every
+# use, and the loser of the race gets HTTP 400 invalid_grant on its next
+# request. \`pkill -u $SERVICE_USER\` scopes the kill to this service's
+# user so multi-tenant hosts aren't sniped. The \`-\` prefix makes systemd
+# tolerate exit code 1 (no matches found, the happy path on a clean box).
+ExecStartPre=-/usr/bin/pkill -TERM -u $SERVICE_USER -f "opencode-ai/bin/.*serve"
 ExecStartPre=$KIMAKI_CONFIG_DIR/post-upgrade.sh
 ExecStart=$KIMAKI_BIN --data-dir $KIMAKI_DATA_DIR --auto-restart --no-critique
 Restart=always
