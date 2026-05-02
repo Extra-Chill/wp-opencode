@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.0] - 2026-05-02
+
+### Added
+- register Homeboy project
+
+### Fixed
+- verify WordPress extension during setup
+- attach DMC primaries as project components
+
 ## [0.7.5] - 2026-05-02
 
 ### Fixed
