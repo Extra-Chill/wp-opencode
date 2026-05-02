@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.5] - 2026-05-02
+
+### Fixed
+- add Data Machine session handoff
+
 ## [0.7.4] - 2026-04-30
 
 ### Fixed
