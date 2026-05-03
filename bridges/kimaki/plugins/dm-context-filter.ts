@@ -62,6 +62,9 @@
 //   Add to opencode.json:  "plugin": ["/opt/kimaki-config/plugins/dm-context-filter.ts"]
 //   Or place in .opencode/plugins/ in the project root.
 
+/**
+ * External dependencies
+ */
 import type { Plugin } from "@opencode-ai/plugin";
 
 const fleetContextFilter: Plugin = async () => {
@@ -108,7 +111,9 @@ const fleetContextFilter: Plugin = async () => {
           continue;
         }
         const text = (part as any).text as string;
-        if (!text) continue;
+        if (!text) {
+          continue;
+        }
 
         // Remove MEMORY.md TOC injection.
         if (text.includes("Project memory from MEMORY.md")) {
@@ -134,22 +139,11 @@ const fleetContextFilter: Plugin = async () => {
 };
 
 /**
- * Remove a markdown section from a system prompt block. Matches from the
- * heading to just before the next heading at the same or higher level, or
- * to the end of the block.
+ * Remove a markdown section from a system prompt block.
  *
- * Supports both ## and ### headings. For ##, stops at the next ## or #.
- * For ###, stops at the next ###, ##, or #.
- *
- * Fence-aware: lines that look like headings but live inside fenced code
- * blocks (``` … ```) are NOT treated as section terminators. Bash code
- * examples in the kimaki system prompt routinely contain `# Comment`
- * lines, which a naive regex would mistake for a level-1 heading and
- * stop the section early — leaving the rest of the section unstripped.
- * The previous regex-only implementation hit this bug on every section
- * containing a ```bash block with `#`-prefixed comments (notably
- * "## waiting for a session to finish", which left a `--worktree`
- * reference in the filtered prompt).
+ * @param {string} block   - System prompt block.
+ * @param {string} heading - Section heading to remove.
+ * @return {string} System prompt block without the requested section.
  */
 function stripSection(block: string, heading: string): string {
   const lines = block.split("\n");
@@ -165,7 +159,9 @@ function stripSection(block: string, heading: string): string {
       break;
     }
   }
-  if (start === -1) return block;
+  if (start === -1) {
+    return block;
+  }
 
   // Walk forward looking for the next heading of the same or higher level
   // (i.e. fewer-or-equal `#` characters), tracking fenced-code-block state
@@ -178,7 +174,9 @@ function stripSection(block: string, heading: string): string {
       inFence = !inFence;
       continue;
     }
-    if (inFence) continue;
+    if (inFence) {
+      continue;
+    }
     const m = line.match(/^(#{1,6})\s+\S/);
     if (m && m[1].length <= level) {
       end = i;
@@ -203,6 +201,9 @@ function stripSection(block: string, heading: string): string {
  * Leaving the language in causes the agent to try `kimaki send --worktree`
  * or treat a Kimaki worktree as its working directory instead of using the
  * DM Code workspace.
+ *
+ * @param {string} block System prompt block.
+ * @return {string} System prompt block without worktree inline guidance.
  */
 function stripWorktreeInlines(block: string): string {
   let result = block;
@@ -267,6 +268,9 @@ function stripWorktreeInlines(block: string): string {
  *
  * We keep `${channelId}` examples untouched — those are the intended,
  * session-scoped forms.
+ *
+ * @param {string} block System prompt block.
+ * @return {string} System prompt block without project discovery guidance.
  */
 function stripProjectDiscoveryInlines(block: string): string {
   let result = block;
@@ -347,6 +351,9 @@ function stripProjectDiscoveryInlines(block: string): string {
  * agent. Passing `--agent <current_agent>` teaches the runtime agent to turn
  * the synthetic reminder value (often `opencode`) into a real session routing
  * override, bypassing the channel-bound Franklin agent.
+ *
+ * @param {string} block System prompt block.
+ * @return {string} System prompt block without agent override examples.
  */
 function stripAgentOverrideInlines(block: string): string {
   let result = block;
@@ -382,6 +389,9 @@ function stripAgentOverrideInlines(block: string): string {
  * use the live site and `wp`. A tunnel is still useful when the task needs an
  * inbound public URL, but it is not the default path for interacting with the
  * site.
+ *
+ * @param {string} block System prompt block.
+ * @return {string} System prompt block with WordPress runtime guidance appended.
  */
 function appendWordPressSiteRuntimeInstruction(block: string): string {
   const instruction = `
@@ -399,6 +409,9 @@ Use \`kimaki tunnel\` only when the task specifically needs an inbound public UR
 
 /**
  * Append a positive Data Machine session handoff instruction.
+ *
+ * @param {string} block System prompt block.
+ * @return {string} System prompt block with Data Machine handoff guidance appended.
  */
 function appendDataMachineSessionHandoffInstruction(block: string): string {
   const instruction = `

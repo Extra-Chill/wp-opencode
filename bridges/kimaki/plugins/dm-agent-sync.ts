@@ -12,6 +12,9 @@
 //   Add to opencode.json:  "plugin": ["path/to/dm-agent-sync.ts"]
 //   Or place in .opencode/plugins/ in the project root.
 
+/**
+ * External dependencies
+ */
 import type { Plugin } from "@opencode-ai/plugin";
 
 interface DmAgent {
@@ -56,17 +59,25 @@ const dmAgentSync: Plugin = async ({ $ }) => {
         // wp datamachine agents list appends a summary line ("Total: N agent(s).")
         // after the JSON array. Strip it to get valid JSON.
         const jsonMatch = agentsRaw.match(/\[[\s\S]*\]/);
-        if (!jsonMatch) return;
+        if (!jsonMatch) {
+          return;
+        }
 
         const agents: DmAgent[] = JSON.parse(jsonMatch[0]);
-        if (!agents.length) return;
+        if (!agents.length) {
+          return;
+        }
 
         // Ensure agent config object exists.
-        if (!config.agent) config.agent = {};
+        if (!config.agent) {
+          config.agent = {};
+        }
 
         for (const agent of agents) {
           const status = agent.status || "active";
-          if (status !== "active") continue;
+          if (status !== "active") {
+            continue;
+          }
 
           // Get agent file paths.
           let paths: DmPaths;
@@ -76,7 +87,9 @@ const dmAgentSync: Plugin = async ({ $ }) => {
             continue;
           }
 
-          if (!paths?.relative_files?.length) continue;
+          if (!paths?.relative_files?.length) {
+            continue;
+          }
 
           // Build the prompt from discovered files (layered: AGENTS.md → SITE.md → SOUL.md → MEMORY.md → USER.md).
           const prompt = [
@@ -104,8 +117,12 @@ const dmAgentSync: Plugin = async ({ $ }) => {
             prompt,
             mode: "primary" as const,
           };
-          if (agentModel) buildEntry.model = agentModel;
-          if (tools) buildEntry.tools = tools;
+          if (agentModel) {
+            buildEntry.model = agentModel;
+          }
+          if (tools) {
+            buildEntry.tools = tools;
+          }
 
           // Check if this agent is already defined in the config (user override).
           // Don't overwrite explicit user config — only fill in missing agents.
@@ -154,6 +171,9 @@ const dmAgentSync: Plugin = async ({ $ }) => {
 /**
  * Check if an agent config entry looks like an intentional user override
  * (has a model set, which means the user chose something specific).
+ *
+ * @param {Record<string, unknown>} agent Agent configuration entry.
+ * @return {boolean} Whether the entry looks user-configured.
  */
 function isUserOverride(agent: Record<string, unknown>): boolean {
   return typeof agent.model === "string" && agent.model.length > 0;
