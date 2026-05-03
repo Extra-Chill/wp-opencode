@@ -375,6 +375,7 @@ _runtime_repair_opencode_json_additive() {
 runtime_generate_instructions() {
   if [ "$DRY_RUN" = false ] && [ -f "$SITE_PATH/AGENTS.md" ]; then
     log "Phase 8: AGENTS.md already exists — skipping (delete to regenerate)"
+    _opencode_symlink_claude_md
     return
   fi
 
@@ -387,6 +388,7 @@ runtime_generate_instructions() {
     sync_homeboy_availability
     if wp_cmd datamachine memory compose AGENTS.md 2>/dev/null; then
       log "AGENTS.md composed from SectionRegistry"
+      _opencode_symlink_claude_md
       return
     fi
     warn "Compose failed — falling back to static template"
@@ -407,8 +409,26 @@ runtime_generate_instructions() {
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would generate AGENTS.md from template"
+    echo -e "${BLUE}[dry-run]${NC} Would symlink CLAUDE.md → AGENTS.md (Claude-model context)"
   else
     sed "s|{{WP_CLI_CMD}}|$wp_cli_display|g" "$agents_tmpl" > "$SITE_PATH/AGENTS.md"
+    _opencode_symlink_claude_md
+  fi
+}
+
+# Symlink CLAUDE.md → AGENTS.md so Claude-model opencode sessions inherit the
+# same DM context. OpenCode globs ["AGENTS.md", "CLAUDE.md", "CONTEXT.md"] from
+# cwd; Claude Code reads only CLAUDE.md. Relative target survives directory moves.
+# Skipped when CLAUDE.md is a regular file (claude-code/studio-code runtimes
+# manage their own template-based CLAUDE.md).
+# See: Extra-Chill/wp-coding-agents#108
+_opencode_symlink_claude_md() {
+  local agents_md="$SITE_PATH/AGENTS.md"
+  local claude_md="$SITE_PATH/CLAUDE.md"
+  [ -f "$agents_md" ] || return 0
+  if [ -L "$claude_md" ] || [ ! -e "$claude_md" ]; then
+    (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md)
+    log "Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
   fi
 }
 
