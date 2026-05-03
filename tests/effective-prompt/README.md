@@ -2,8 +2,9 @@
 
 Pluggable harness that renders the kimaki opencode system prompt, runs the
 `dm-context-filter` plugin over it, snapshots the result, and asserts that
-no banned phrases (`worktree`, `--cwd`, etc) leak into the filtered prompt
-that an opencode session actually sees.
+no banned phrases (`worktree`, `--cwd`, `kimaki project`, `--project`,
+`#project-name`, etc) leak into the filtered prompt that an opencode session
+actually sees.
 
 ## Why
 
@@ -49,8 +50,8 @@ Each scenario is a JSON file in `scenarios/`. Override any of:
 - **`baseline`** — name from `filters.mjs`. Default
   `"broken-stripsection"` (proves new filter strips strictly more).
 - **`triggers`** — array of `{ name, pattern }`. Pattern is a JS regex
-  string; prefix with `(?i)` for case-insensitive. Default: `worktree`
-  + `--cwd`.
+  string; prefix with `(?i)` for case-insensitive. Default: `worktree`,
+  `--cwd`, `--agent`, and Kimaki project/channel routing guidance.
 - **`allowLeakInSection`** — array of section headings (e.g. `"## Minion
   Session Routing"`) where trigger matches are intentional and must not
   count as leaks.

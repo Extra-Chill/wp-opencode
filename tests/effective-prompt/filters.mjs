@@ -20,7 +20,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PLUGIN_PATH = join(__dirname, "..", "..", "kimaki", "plugins", "dm-context-filter.ts")
+const PLUGIN_PATH = join(__dirname, "..", "..", "bridges", "kimaki", "plugins", "dm-context-filter.ts")
 
 // ---------------------------------------------------------------------------
 // "current" filter — extract the filter helpers from the live plugin
@@ -65,11 +65,16 @@ function stripWorktreeInlines(block) {
 
 function stripProjectDiscoveryInlines(block) {
   let result = block
+  result = result.replace(/\n+When the user references another project by name,[\s\S]*?root project directories\.\n/g, "\n")
+  result = result.replace(/\n+When the user uses `#project-name` syntax,[\s\S]*?before acting,[^\n]*\n/g, "\n")
+  result = result.replace(/\n+To send a task to another project:[\s\S]*?(?=\n\S|$)/g, "\n")
+  result = result.replace(/\n+When sending prompts to other projects,[^\n]*\n/g, "\n")
   result = result.replace(/\n+kimaki project (?:list|add|create)[^\n]*\n/g, "\n")
   result = result.replace(/\n+kimaki send --project [^\n]*\n/g, "\n")
   result = result.replace(/\n+kimaki send --channel <channel_id>[^\n]*\n/g, "\n")
   result = result.replace(/\n+kimaki session search [^\n]*--channel <channel_id>[^\n]*\n/g, "\n")
   result = result.replace(/\n+kimaki (?:session|task) [^\n]*--project [^\n]*\n/g, "\n")
+  result = result.replace(/\n+[^\n]*(?:project channel|cross-project|#project-name|other project|another project)[^\n]*\n/gi, "\n")
   return result
 }
 
