@@ -163,6 +163,10 @@ const dmAgentSync: Plugin = async ({ $ }) => {
 
 /**
  * Populate build/plan defaults without clobbering user-authored fields.
+ *
+ * @param {Record<string, unknown>} agentConfig  - OpenCode agent config object.
+ * @param {"build"|"plan"}          slot         - Default slot to synchronize.
+ * @param {Record<string, unknown>} managedEntry - Data Machine-managed entry.
  */
 function syncDefaultSlot(
   agentConfig: Record<string, unknown>,
