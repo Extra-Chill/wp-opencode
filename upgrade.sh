@@ -626,12 +626,30 @@ update_chat_bridge_launchd() {
 reapply_claude_auth_patch() {
   _run_filter_active patch || return 0
 
-  if [ "$RUNTIME" != "opencode" ]; then
-    log "Phase 7: Skipping (runtime is $RUNTIME, not opencode)"
+  if [ "$RUNTIME" != "opencode" ] && [ "$CHAT_BRIDGE" != "kimaki" ]; then
+    log "Phase 7: Skipping (runtime is $RUNTIME and chat bridge is $CHAT_BRIDGE)"
     return 0
   fi
 
-  log "Phase 7: Re-applying opencode-claude-auth PascalCase patch..."
+  log "Phase 7: Checking OpenCode auth integration..."
+
+  if ! declare -F _install_opencode_wrapper >/dev/null; then
+    # Kimaki spawns opencode-serve even when the primary editing runtime is not
+    # OpenCode, so stale wrappers must be repairable from any Kimaki install.
+    # Source the runtime file for its wrapper helper without running a full
+    # OpenCode runtime install.
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/runtimes/opencode.sh"
+  fi
+
+  _install_opencode_wrapper
+
+  if [ "$RUNTIME" != "opencode" ]; then
+    log "  Skipping opencode-claude-auth patch (runtime is $RUNTIME)"
+    return 0
+  fi
+
+  log "  Re-applying opencode-claude-auth PascalCase patch..."
 
   if [ ! -f "$SCRIPT_DIR/lib/patch-claude-auth.py" ]; then
     warn "  patch-claude-auth.py not found — skipping"

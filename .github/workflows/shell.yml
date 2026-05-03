@@ -31,3 +31,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests/bridge-render.sh
         run: ./tests/bridge-render.sh
+
+  opencode-wrapper:
+    name: opencode wrapper regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests/opencode-wrapper.sh
+        run: ./tests/opencode-wrapper.sh
