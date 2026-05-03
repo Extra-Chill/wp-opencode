@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2] - 2026-05-03
+
+### Fixed
+- satisfy agent sync lint
+- preserve Data Machine context
+- symlink CLAUDE.md → AGENTS.md for Claude-model opencode sessions
+- refresh stale kimaki wrapper
+
 ## [0.8.1] - 2026-05-03
 
 ### Changed
