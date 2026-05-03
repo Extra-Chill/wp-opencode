@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.1] - 2026-05-03
+
+### Changed
+- refresh systemd bridge snapshot
+
+### Fixed
+- satisfy plugin lint rules
+- strip project routing guidance
+- reap orphaned opencode-serve children on service start
+
 ## [0.8.0] - 2026-05-02
 
 ### Added
