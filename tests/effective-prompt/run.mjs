@@ -45,15 +45,16 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "node:fs"
 import { execSync } from "node:child_process"
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { getOpencodeSystemMessage } from "/Users/chubes/.nvm/versions/node/v24.13.1/lib/node_modules/kimaki/dist/system-message.js"
 import { filters } from "./filters.mjs"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const SNAPSHOT_DIR = join(__dirname, "__snapshots__")
 const SCENARIO_DIR = join(__dirname, "scenarios")
+const KIMAKI_DIST_DIR = process.env.KIMAKI_DIST_DIR || join(execSync("npm root -g", { encoding: "utf8" }).trim(), "kimaki", "dist")
+const { getOpencodeSystemMessage } = await import(pathToFileURL(join(KIMAKI_DIST_DIR, "system-message.js")).href)
 
 if (!existsSync(SNAPSHOT_DIR)) mkdirSync(SNAPSHOT_DIR, { recursive: true })
 
@@ -194,7 +195,7 @@ function gitDiff(beforePath, afterPath) {
 // Run one scenario.
 // ---------------------------------------------------------------------------
 
-function runScenario(name, scenario) {
+async function runScenario(name, scenario) {
   if (ONLY && name !== ONLY) return { name, skipped: true }
 
   const filterFn = filters[scenario.filter]
@@ -203,8 +204,8 @@ function runScenario(name, scenario) {
   if (!baselineFn) throw new Error(`scenario ${name}: unknown baseline "${scenario.baseline}"`)
 
   const raw = getOpencodeSystemMessage(scenario.args)
-  const baselineOut = baselineFn(raw)
-  const filteredOut = filterFn(raw)
+  const baselineOut = await baselineFn(raw)
+  const filteredOut = await filterFn(raw)
 
   const baselineLeaks = detectLeaks(baselineOut, scenario.triggers, scenario.allowLeakInSection)
   const filteredLeaks = detectLeaks(filteredOut, scenario.triggers, scenario.allowLeakInSection)
@@ -327,7 +328,10 @@ function printResult(r) {
 // ---------------------------------------------------------------------------
 
 const scenarios = loadScenarios()
-const results = scenarios.map(([name, scenario]) => runScenario(name, scenario))
+const results = []
+for (const [name, scenario] of scenarios) {
+  results.push(await runScenario(name, scenario))
+}
 
 let failed = 0
 for (const r of results) {

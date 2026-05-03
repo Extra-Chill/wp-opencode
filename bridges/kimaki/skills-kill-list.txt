@@ -1,6 +1,7 @@
 # Skills to remove from Kimaki after upgrades.
 # One skill directory name per line. Lines starting with # are ignored.
 
+batch
 egaki
 errore
 event-sourcing-state

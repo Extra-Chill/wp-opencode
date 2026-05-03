@@ -3,9 +3,9 @@
 // Each entry is a function (string -> string) the harness can apply to a
 // rendered system prompt. Two are first-class:
 //
-//   - "current": the actual filter logic from
-//     kimaki/plugins/dm-context-filter.ts. Loaded from disk so that
-//     editing the plugin source automatically updates the test.
+//   - "current": the actual dm-context-filter.ts OpenCode plugin hook.
+//     Loaded from disk so that editing the plugin source automatically
+//     updates the test.
 //
 //   - "broken-stripsection": the regex-only stripSection that misfires
 //     on fenced bash comments. Kept as a baseline so the harness can
@@ -15,22 +15,15 @@
 // Add new filters here when you need to A/B test alternative
 // implementations from a scenario file.
 
-import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PLUGIN_PATH = join(__dirname, "..", "..", "bridges", "kimaki", "plugins", "dm-context-filter.ts")
 
 // ---------------------------------------------------------------------------
-// "current" filter — extract the filter helpers from the live plugin
-// source by name. We can't `import` the .ts directly from node, so we
-// re-implement the helpers here BUT keep them in sync with the plugin
-// by way of the snapshot tests + reviewer eyeballs. If the plugin source
-// drifts from these, the snapshot diff will surface it.
-//
-// Keeping these as runtime-loaded eval would be brittle; the snapshots
-// are the trust boundary, not source-of-truth re-import.
+// Baseline helper copies — intentionally kept only for the broken baseline.
+// The "current" filter below imports and executes the real OpenCode plugin.
 // ---------------------------------------------------------------------------
 
 function stripSection(block, heading) {
@@ -116,32 +109,17 @@ Use \`kimaki tunnel\` only when the task specifically needs an inbound public UR
   return block.replace(/\s*$/, "") + instruction
 }
 
-function currentFilter(block) {
-  let r = block
-  r = stripSection(r, "## permissions")
-  r = stripSection(r, "## upgrading kimaki")
-  r = stripSection(r, "## scheduled sends and task management")
-  r = stripSection(r, "## running dev servers with tunnel access")
-  r = stripSection(r, "## starting new sessions from CLI")
-  r = stripSection(r, "## creating worktrees")
-  r = stripSection(r, "## worktree")
-  r = stripSection(r, "## cross-project commands")
-  r = stripSection(r, "## reading other sessions")
-  r = stripSection(r, "## waiting for a session to finish")
-  r = stripSection(r, "## running opencode commands via kimaki send")
-  r = stripSection(r, "## switching agents in the current session")
-  r = stripSection(r, "## showing diffs")
-  r = stripSection(r, "## about critique")
-  r = stripSection(r, "### always show diff at end of session")
-  r = stripSection(r, "### fetching user comments from critique diffs")
-  r = stripSection(r, "### reviewing diffs with AI")
-  r = stripWorktreeInlines(r)
-  r = stripProjectDiscoveryInlines(r)
-  r = stripAgentOverrideInlines(r)
-  r = r.replace(/\n{3,}/g, "\n\n")
-  r = appendWordPressSiteRuntimeInstruction(r)
-  r = appendDataMachineSessionHandoffInstruction(r)
-  return r
+async function currentFilter(block) {
+  const pluginModule = await import(pathToFileURL(PLUGIN_PATH).href)
+  const plugin = await pluginModule.default({})
+  const transform = plugin["experimental.chat.system.transform"]
+  if (typeof transform !== "function") {
+    throw new Error(`dm-context-filter plugin is missing experimental.chat.system.transform: ${PLUGIN_PATH}`)
+  }
+
+  const output = { system: [block] }
+  await transform({}, output)
+  return output.system.join("\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -197,22 +175,10 @@ function brokenFilter(block) {
 function passthrough(block) { return block }
 
 // ---------------------------------------------------------------------------
-// Sanity check: confirm the plugin source on disk still uses the same
-// section list. If a future PR adds/removes a stripSection() call in
-// dm-context-filter.ts, this read surfaces it as a snapshot drift.
-// ---------------------------------------------------------------------------
-
-let pluginSourceSnapshot = ""
-try {
-  pluginSourceSnapshot = readFileSync(PLUGIN_PATH, "utf8")
-} catch (e) {
-  // Worktree-only file; harness still works without it.
-}
-
 export const filters = {
   current: currentFilter,
   "broken-stripsection": brokenFilter,
   passthrough,
 }
 
-export const meta = { pluginPath: PLUGIN_PATH, pluginSourceSnapshot }
+export const meta = { pluginPath: PLUGIN_PATH }
