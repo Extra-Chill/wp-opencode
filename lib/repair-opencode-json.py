@@ -187,6 +187,52 @@ def check_prompt_migration(data: dict) -> dict:
     }
 
 
+def is_default_only_agent_block(block: object, top_model: object) -> bool:
+    """Return whether an agent block is only OpenCode default-equivalent data."""
+    if not isinstance(block, dict):
+        return False
+
+    keys = set(block.keys())
+    if not keys <= {"mode", "model"}:
+        return False
+    if block.get("mode", "primary") != "primary":
+        return False
+    if "model" in block and block.get("model") != top_model:
+        return False
+    return True
+
+
+def check_agent_cleanup(data: dict) -> dict:
+    """Check for default-only persisted build/plan agent shells."""
+    agent = data.get("agent", {})
+    if not isinstance(agent, dict):
+        return {"status": "ok", "remove": []}
+
+    top_model = data.get("model")
+    remove = [
+        sub
+        for sub in ("build", "plan")
+        if is_default_only_agent_block(agent.get(sub), top_model)
+    ]
+    return {"status": "needed" if remove else "ok", "remove": remove}
+
+
+def apply_agent_cleanup(data: dict) -> List[str]:
+    """Remove default-only persisted build/plan agent shells from *data*."""
+    result = check_agent_cleanup(data)
+    agent = data.get("agent", {})
+    if not isinstance(agent, dict):
+        return []
+
+    for sub in result["remove"]:
+        agent.pop(sub, None)
+
+    if not agent:
+        data.pop("agent", None)
+
+    return result["remove"]
+
+
 def apply_prompt_migration(data: dict) -> dict:
     """Migrate ``agent.build.prompt`` → ``instructions`` in *data* (in-place).
 
@@ -205,11 +251,6 @@ def apply_prompt_migration(data: dict) -> dict:
     agent = data.get("agent", {})
     for sub in ("build", "plan"):
         agent.get(sub, {}).pop("prompt", None)
-    # Clean up empty dicts.
-    for sub in ("build", "plan"):
-        if sub in agent and isinstance(agent[sub], dict) and not agent[sub]:
-            pass  # keep mode/model keys
-
     # Merge with any existing instructions, preserving user-added entries.
     existing = set(data.get("instructions", []))
     merged = list(data.get("instructions", []))
@@ -217,6 +258,8 @@ def apply_prompt_migration(data: dict) -> dict:
         if p not in existing:
             merged.append(p)
     data["instructions"] = merged
+
+    apply_agent_cleanup(data)
 
     return result
 
@@ -287,6 +330,7 @@ def main() -> int:
 
     # --- Prompt migration check (runs for all runtimes with opencode.json) ---
     prompt_result = check_prompt_migration(data)
+    agent_cleanup_result = check_agent_cleanup(data)
 
     # --- Plugin array check ---
     expected = expected_plugins(
@@ -317,10 +361,16 @@ def main() -> int:
     diff = diff_plugins(current, expected)
     has_plugin_drift = bool(diff["missing"] or diff["unexpected"])
     has_prompt_drift = prompt_result["status"] == "needed"
-    has_any_drift = has_plugin_drift or has_prompt_drift
+    has_agent_cleanup_drift = agent_cleanup_result["status"] == "needed"
+    has_any_drift = has_plugin_drift or has_prompt_drift or has_agent_cleanup_drift
 
     if not has_any_drift:
-        result: dict = {"status": "ok", "plugins": current, "prompt_migration": "ok"}
+        result: dict = {
+            "status": "ok",
+            "plugins": current,
+            "prompt_migration": "ok",
+            "agent_cleanup": "ok",
+        }
         if plugin_skipped:
             result["plugins_skipped"] = (
                 f"runtime {args.runtime} does not use opencode.json plugin array"
@@ -335,6 +385,7 @@ def main() -> int:
             "current": current,
             "expected": expected,
             "prompt_migration": prompt_result["status"],
+            "agent_cleanup": agent_cleanup_result["status"],
         }
         if has_plugin_drift:
             result["missing"] = diff["missing"]
@@ -342,6 +393,8 @@ def main() -> int:
         if has_prompt_drift:
             result["prompt_details"] = prompt_result.get("details", "")
             result["prompt_instructions"] = prompt_result.get("instructions", [])
+        if has_agent_cleanup_drift:
+            result["agent_cleanup_remove"] = agent_cleanup_result.get("remove", [])
         if plugin_skipped:
             result["plugins_skipped"] = (
                 f"runtime {args.runtime} does not use opencode.json plugin array"
@@ -366,6 +419,8 @@ def main() -> int:
         apply_prompt_migration(data)
         prompt_migration_status = "migrated"
 
+    removed_agent_blocks = apply_agent_cleanup(data)
+
     with open(args.file, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
@@ -385,7 +440,10 @@ def main() -> int:
             "added": added,
             "backup": backup_path,
             "prompt_migration": prompt_migration_status,
+            "agent_cleanup": "removed" if removed_agent_blocks else "ok",
         }
+        if removed_agent_blocks:
+            result["agent_cleanup_removed"] = removed_agent_blocks
         if still_unexpected:
             result["unexpected"] = still_unexpected
         print(json.dumps(result))
@@ -399,7 +457,10 @@ def main() -> int:
         "after": after_plugins,
         "backup": backup_path,
         "prompt_migration": prompt_migration_status,
+        "agent_cleanup": "removed" if removed_agent_blocks else "ok",
     }
+    if removed_agent_blocks:
+        result["agent_cleanup_removed"] = removed_agent_blocks
     print(json.dumps(result))
     return 1
 

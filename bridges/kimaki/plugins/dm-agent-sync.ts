@@ -43,140 +43,155 @@ interface DmPaths {
 const dmAgentSync: Plugin = async ({ $ }) => {
   return {
     config: async (config) => {
-      try {
-        // Refresh composable files before the session reads them.
-        // DM SectionRegistry callbacks render live state (configured sources,
-        // skills, config). DM's own invalidation hooks cover state changes
-        // that happen inside a WordPress request, but cron jobs, direct DB
-        // edits, or other external processes would leave AGENTS.md stale.
-        // Running compose here guarantees the file matches live state at the
-        // moment OpenCode loads the session prompt.
-        await $`wp datamachine memory compose --allow-root 2>/dev/null`.quiet().nothrow();
-
-        // Query all agents from Data Machine.
-        const agentsRaw = await $`wp datamachine agents list --format=json --allow-root 2>/dev/null`.quiet().nothrow().text();
-
-        // wp datamachine agents list appends a summary line ("Total: N agent(s).")
-        // after the JSON array. Strip it to get valid JSON.
-        const jsonMatch = agentsRaw.match(/\[[\s\S]*\]/);
-        if (!jsonMatch) {
-          return;
-        }
-
-        const agents: DmAgent[] = JSON.parse(jsonMatch[0]);
-        if (!agents.length) {
-          return;
-        }
-
-        // Ensure agent config object exists.
-        if (!config.agent) {
-          config.agent = {};
-        }
-
-        for (const agent of agents) {
-          const status = agent.status || "active";
-          if (status !== "active") {
-            continue;
-          }
-
-          // Get agent file paths.
-          let paths: DmPaths;
-          try {
-            paths = await $`wp datamachine memory paths --agent=${agent.agent_slug} --format=json --allow-root 2>/dev/null`.quiet().json();
-          } catch {
-            continue;
-          }
-
-          if (!paths?.relative_files?.length) {
-            continue;
-          }
-
-          // Build the prompt from discovered files (layered: AGENTS.md → SITE.md → SOUL.md → MEMORY.md → USER.md).
-          const prompt = [
-            "{file:./AGENTS.md}",
-            ...paths.relative_files.map((f: string) => `{file:./${f}}`),
-          ].join("\n");
-
-          // Resolve model from agent config.
-          const agentModel =
-            agent.agent_config?.default_model ||
-            (agent.agent_config?.model?.default
-              ? `${agent.agent_config.model.default.provider}/${agent.agent_config.model.default.model}`
-              : undefined);
-
-          // Resolve tool policy from agent config.
-          const tools = agent.agent_config?.tool_policy;
-
-          // Register as both "build" and "plan" variants for the agent.
-          // The first agent becomes the default build/plan agents.
-          // Additional agents get their own named entries.
-          const agentSlug = agent.agent_slug;
-
-          // Build agent entry.
-          const buildEntry: Record<string, unknown> = {
-            prompt,
-            mode: "primary" as const,
-          };
-          if (agentModel) {
-            buildEntry.model = agentModel;
-          }
-          if (tools) {
-            buildEntry.tools = tools;
-          }
-
-          // Check if this agent is already defined in the config (user override).
-          // Don't overwrite explicit user config — only fill in missing agents.
-          if (config.agent.build && config.agent.plan && agents.length === 1) {
-            // Single agent + build/plan already defined = user has configured it.
-            // Still update the prompt to ensure file paths are current.
-            if (!isUserOverride(config.agent.build)) {
-              config.agent.build.prompt = prompt;
-            }
-            if (!isUserOverride(config.agent.plan)) {
-              config.agent.plan.prompt = prompt;
-            }
-            continue;
-          }
-
-          // For multi-agent setups, register each agent by slug.
-          // First active agent also populates build/plan defaults if not set.
-          if (!config.agent.build) {
-            config.agent.build = { ...buildEntry };
-          }
-          if (!config.agent.plan) {
-            config.agent.plan = {
-              prompt,
-              mode: "primary" as const,
-              ...(agentModel ? { model: agentModel } : {}),
-              ...(tools ? { tools } : {}),
-            };
-          }
-
-          // Always register by slug name for the switcher.
-          if (!config.agent[agentSlug]) {
-            config.agent[agentSlug] = {
-              ...buildEntry,
-              description: `Data Machine agent: ${agent.agent_name}`,
-            };
-          }
-        }
-      } catch {
-        // If WP-CLI is unavailable or Data Machine isn't installed, silently skip.
-        // The plugin is a no-op on systems without Data Machine.
+      const wpAvailable = await $`command -v wp`.quiet().nothrow();
+      if (wpAvailable.exitCode !== 0) {
+        return;
       }
+
+      // Refresh composable files before the session reads them.
+      // DM SectionRegistry callbacks render live state (configured sources,
+      // skills, config). DM's own invalidation hooks cover state changes
+      // that happen inside a WordPress request, but cron jobs, direct DB
+      // edits, or other external processes would leave AGENTS.md stale.
+      // Running compose here guarantees the file matches live state at the
+      // moment OpenCode loads the session prompt.
+      const composeResult = await $`wp datamachine memory compose --allow-root`.quiet().nothrow();
+      if (composeResult.exitCode !== 0) {
+        console.warn(`[dm-agent-sync] memory compose failed (exit ${composeResult.exitCode}): ${await shellOutputText(composeResult)}`);
+      }
+
+      // Query all agents from Data Machine.
+      const agentsResult = await $`wp datamachine agents list --format=json --allow-root`.quiet().nothrow();
+      if (agentsResult.exitCode !== 0) {
+        console.warn(`[dm-agent-sync] agents list failed (exit ${agentsResult.exitCode}): ${await shellOutputText(agentsResult)}`);
+        return;
+      }
+
+      const agentsRaw = await shellOutputText(agentsResult);
+      const jsonMatch = agentsRaw.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        console.warn("[dm-agent-sync] agents list did not contain a JSON array");
+        return;
+      }
+
+      let agents: DmAgent[];
+      try {
+        agents = JSON.parse(jsonMatch[0]);
+      } catch (error) {
+        console.warn(`[dm-agent-sync] agents list returned invalid JSON: ${String(error)}`);
+        return;
+      }
+
+      const entries = [];
+      for (const agent of agents) {
+        const status = agent.status || "active";
+        if (status !== "active") {
+          continue;
+        }
+
+        const pathsResult = await $`wp datamachine memory paths --agent=${agent.agent_slug} --format=json --allow-root`.quiet().nothrow();
+        if (pathsResult.exitCode !== 0) {
+          console.warn(`[dm-agent-sync] memory paths failed for ${agent.agent_slug} (exit ${pathsResult.exitCode}): ${await shellOutputText(pathsResult)}`);
+          continue;
+        }
+
+        let paths: DmPaths;
+        try {
+          paths = JSON.parse(await shellOutputText(pathsResult));
+        } catch (error) {
+          console.warn(`[dm-agent-sync] memory paths returned invalid JSON for ${agent.agent_slug}: ${String(error)}`);
+          continue;
+        }
+
+        if (!paths?.relative_files?.length) {
+          console.warn(`[dm-agent-sync] memory paths returned no files for ${agent.agent_slug}`);
+          continue;
+        }
+
+        const prompt = [
+          "{file:./AGENTS.md}",
+          ...paths.relative_files.map((f: string) => `{file:./${f}}`),
+        ].join("\n");
+
+        const agentModel =
+          agent.agent_config?.default_model ||
+          (agent.agent_config?.model?.default
+            ? `${agent.agent_config.model.default.provider}/${agent.agent_config.model.default.model}`
+            : undefined);
+        const tools = agent.agent_config?.tool_policy;
+        const entry: Record<string, unknown> = {
+          prompt,
+          mode: "primary" as const,
+        };
+        if (agentModel) {
+          entry.model = agentModel;
+        }
+        if (tools) {
+          entry.tools = tools;
+        }
+
+        entries.push({ agent, entry, prompt });
+      }
+
+      if (!entries.length) {
+        console.warn(`[dm-agent-sync] no active Data Machine agents with usable memory paths found (${agents.length} listed)`);
+        return;
+      }
+
+      if (!config.agent) {
+        config.agent = {};
+      }
+
+      const primary = entries[0];
+      syncDefaultSlot(config.agent, "build", primary.entry);
+      syncDefaultSlot(config.agent, "plan", primary.entry);
+
+      for (const { agent, entry } of entries) {
+        const agentSlug = agent.agent_slug;
+        if (!config.agent[agentSlug]) {
+          config.agent[agentSlug] = {
+            ...entry,
+            description: `Data Machine agent: ${agent.agent_name}`,
+          };
+        }
+      }
+
+      console.warn(`[dm-agent-sync] registered ${entries.length} Data Machine agent(s); build/plan prompt uses ${primary.agent.agent_slug}`);
     },
   };
 };
 
 /**
- * Check if an agent config entry looks like an intentional user override
- * (has a model set, which means the user chose something specific).
- *
- * @param {Record<string, unknown>} agent Agent configuration entry.
- * @return {boolean} Whether the entry looks user-configured.
+ * Populate build/plan defaults without clobbering user-authored fields.
  */
-function isUserOverride(agent: Record<string, unknown>): boolean {
-  return typeof agent.model === "string" && agent.model.length > 0;
+function syncDefaultSlot(
+  agentConfig: Record<string, unknown>,
+  slot: "build" | "plan",
+  managedEntry: Record<string, unknown>
+): void {
+  const existing = agentConfig[slot];
+  if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+    agentConfig[slot] = { ...managedEntry };
+    return;
+  }
+
+  const existingEntry = existing as Record<string, unknown>;
+  if (typeof existingEntry.prompt === "string" && existingEntry.prompt.length > 0) {
+    return;
+  }
+
+  agentConfig[slot] = {
+    ...managedEntry,
+    ...existingEntry,
+    prompt: managedEntry.prompt,
+  };
+}
+
+async function shellOutputText(output: any): Promise<string> {
+  if (typeof output.text === "function") {
+    return output.text();
+  }
+  return [output.stdout, output.stderr].filter(Boolean).join("\n");
 }
 
 export default dmAgentSync;

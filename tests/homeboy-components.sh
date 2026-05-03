@@ -96,4 +96,19 @@ fi
 assert_contains "homeboy project components attach-path site-project $DM_WORKSPACE_DIR/alpha" "$TMP/dry-run-output.log"
 assert_contains "homeboy project components attach-path site-project $DM_WORKSPACE_DIR/beta" "$TMP/dry-run-output.log"
 
+cat > "$SITE_PATH/homeboy.json" <<'JSON'
+{}
+JSON
+DRY_RUN=false
+HOMEBOY_ATTACH_LOG="$TMP/empty-id-attached.log"
+export HOMEBOY_ATTACH_LOG
+sync_homeboy_project_components > "$TMP/empty-id-output.log"
+
+if [ -f "$HOMEBOY_ATTACH_LOG" ]; then
+  echo "FAIL: empty project id should not call homeboy attach-path"
+  cat "$HOMEBOY_ATTACH_LOG"
+  exit 1
+fi
+assert_contains "Homeboy project config returned empty id — skipping DMC component attachment" "$TMP/empty-id-output.log"
+
 echo "OK: Homeboy component attachment skips worktrees and metadata-less repos"

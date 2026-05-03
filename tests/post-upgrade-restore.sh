@@ -50,6 +50,8 @@ mkdir -p "$LIVE_SKILLS" "$SRC_SKILLS" "$SRC_PLUGINS"
 # Seed a blacklisted skill that the kill pass should remove.
 mkdir -p "$LIVE_SKILLS/blacklisted-skill"
 echo "stub" > "$LIVE_SKILLS/blacklisted-skill/SKILL.md"
+mkdir -p "$LIVE_SKILLS/persisted-blacklisted-skill"
+echo "stub" > "$LIVE_SKILLS/persisted-blacklisted-skill/SKILL.md"
 
 # Seed a skill in the persistent source that should be restored.
 mkdir -p "$SRC_SKILLS/restored-skill"
@@ -57,6 +59,15 @@ cat > "$SRC_SKILLS/restored-skill/SKILL.md" <<'EOF'
 ---
 name: restored-skill
 description: test fixture
+---
+body
+EOF
+
+mkdir -p "$SRC_SKILLS/persisted-blacklisted-skill"
+cat > "$SRC_SKILLS/persisted-blacklisted-skill/SKILL.md" <<'EOF'
+---
+name: persisted-blacklisted-skill
+description: persisted but killed test fixture
 ---
 body
 EOF
@@ -80,6 +91,7 @@ chmod +x "$TEST_SCRIPT_DIR/post-upgrade.sh"
 cat > "$TEST_SCRIPT_DIR/skills-kill-list.txt" <<'EOF'
 # test kill list
 blacklisted-skill
+persisted-blacklisted-skill
 EOF
 
 # Run the script with explicit env overrides so it never touches the real
@@ -127,6 +139,9 @@ assert_log_contains_file() {
 # Pass 1: kill pass removed the blacklisted skill.
 assert_missing "$LIVE_SKILLS/blacklisted-skill"
 assert_log_contains "removed skill blacklisted-skill"
+assert_missing "$LIVE_SKILLS/persisted-blacklisted-skill"
+assert_log_contains "removed skill persisted-blacklisted-skill"
+assert_log_contains "skipped killed skill persisted-blacklisted-skill"
 
 # Pass 2: skill restore copied the SKILL.md tree.
 assert_present "$LIVE_SKILLS/restored-skill/SKILL.md"

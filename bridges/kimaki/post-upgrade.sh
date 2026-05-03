@@ -75,6 +75,19 @@ fi
 KILL_LIST="$(dirname "$0")/skills-kill-list.txt"
 REQUIRED_PLUGINS=(dm-context-filter.ts dm-agent-sync.ts)
 
+is_killed_skill() {
+  local candidate="$1"
+
+  [[ -f "$KILL_LIST" ]] || return 1
+
+  while IFS= read -r skill || [[ -n "$skill" ]]; do
+    [[ -z "$skill" || "$skill" == \#* ]] && continue
+    [[ "$candidate" == "$skill" ]] && return 0
+  done < "$KILL_LIST"
+
+  return 1
+}
+
 # ----------------------------------------------------------------------------
 # Pass 1: KILL — remove blacklisted bundled kimaki skills.
 # ----------------------------------------------------------------------------
@@ -121,6 +134,10 @@ elif [[ -d "$SKILL_SOURCE_DIR" ]]; then
   for skill_dir in "$SKILL_SOURCE_DIR"/*/; do
     [[ -d "$skill_dir" ]] || continue
     skill_name="$(basename "$skill_dir")"
+    if is_killed_skill "$skill_name"; then
+      echo "kimaki-config: skipped killed skill $skill_name"
+      continue
+    fi
     if [[ -f "$skill_dir/SKILL.md" ]]; then
       target="$SKILLS_DIR/$skill_name"
       rm -rf "$target"

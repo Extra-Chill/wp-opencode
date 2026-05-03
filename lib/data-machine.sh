@@ -140,6 +140,11 @@ sync_homeboy_project_components() {
     return 0
   fi
 
+  if [ -z "$project_id" ]; then
+    warn "Homeboy project config returned empty id — skipping DMC component attachment"
+    return 0
+  fi
+
   if [ -z "${DM_WORKSPACE_DIR:-}" ]; then
     warn "DMC workspace path not configured — skipping Homeboy component attachment"
     return 0
