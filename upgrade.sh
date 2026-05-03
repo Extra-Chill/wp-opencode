@@ -537,10 +537,12 @@ regenerate_agents_md() {
 
   local AGENTS_MD="$SITE_PATH/AGENTS.md"
   local BACKUP="$SITE_PATH/AGENTS.md.backup.$TIMESTAMP"
+  local CLAUDE_MD="$SITE_PATH/CLAUDE.md"
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${BLUE}[dry-run]${NC} Would backup $AGENTS_MD → $BACKUP"
     echo -e "${BLUE}[dry-run]${NC} Would run: $WP_CMD datamachine memory compose AGENTS.md $WP_ROOT_FLAG"
+    echo -e "${BLUE}[dry-run]${NC} Would symlink $CLAUDE_MD → AGENTS.md (Claude-model context)"
     return 0
   fi
 
@@ -573,6 +575,23 @@ regenerate_agents_md() {
     if [ -f "$BACKUP" ] && [ -f "$AGENTS_MD" ] && ! cmp -s "$BACKUP" "$AGENTS_MD"; then
       cp "$BACKUP" "$AGENTS_MD"
       warn "  Restored AGENTS.md from backup"
+    fi
+  fi
+
+  # Symlink CLAUDE.md → AGENTS.md so Claude-model sessions get the same DM context.
+  # OpenCode reads both filenames from the cwd glob (AGENTS.md, CLAUDE.md, CONTEXT.md),
+  # Claude Code reads only CLAUDE.md. Symlink keeps both runtimes covered without
+  # duplicating content or risking drift on AGENTS.md regeneration. Relative target
+  # ensures the symlink survives directory moves.
+  # See: Extra-Chill/wp-coding-agents#108
+  if [ -f "$AGENTS_MD" ]; then
+    # Skip if CLAUDE.md exists as a regular file (e.g. claude-code/studio-code runtimes
+    # generate their own CLAUDE.md from a template — don't clobber it).
+    if [ -L "$CLAUDE_MD" ] || [ ! -e "$CLAUDE_MD" ]; then
+      (cd "$SITE_PATH" && ln -sf AGENTS.md CLAUDE.md)
+      log "  Symlinked CLAUDE.md → AGENTS.md (covers Claude-model opencode sessions)"
+    else
+      log "  CLAUDE.md exists as a regular file — leaving it alone (runtime-managed)"
     fi
   fi
 }
