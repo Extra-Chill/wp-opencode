@@ -33,18 +33,31 @@ _install_opencode_wrapper() {
   local OPENCODE_BIN
   OPENCODE_BIN=$(command -v opencode 2>/dev/null || echo "/usr/bin/opencode")
 
-  # Don't wrap if opencode is already a wrapper script (re-runs)
-  if head -1 "$OPENCODE_BIN" 2>/dev/null | grep -q "bash"; then
-    log "OpenCode wrapper already installed — skipping"
-    return
-  fi
-
   # Find the real opencode binary (after npm install, it's in node_modules)
   local REAL_BIN
   REAL_BIN=$(readlink -f "$OPENCODE_BIN" 2>/dev/null || echo "$OPENCODE_BIN")
-  # If the resolved path is still a wrapper, dig deeper
+  # If the resolved path is still a wrapper, dig deeper. Existing installs may
+  # have old wp-coding-agents wrappers at /usr/local/bin/opencode; parse their
+  # exec target before falling back to the npm global package path.
   if head -1 "$REAL_BIN" 2>/dev/null | grep -q "bash"; then
-    REAL_BIN="/usr/lib/node_modules/opencode-ai/bin/opencode"
+    local WRAPPED_REAL_BIN
+    WRAPPED_REAL_BIN=""
+    while IFS= read -r line; do
+      case "$line" in
+        exec\ *opencode*|exec\ /*opencode*)
+          set -- $line
+          WRAPPED_REAL_BIN="${2#\'}"
+          WRAPPED_REAL_BIN="${WRAPPED_REAL_BIN%\'}"
+          WRAPPED_REAL_BIN="${WRAPPED_REAL_BIN#\"}"
+          WRAPPED_REAL_BIN="${WRAPPED_REAL_BIN%\"}"
+          ;;
+      esac
+    done < "$REAL_BIN"
+    if [ -n "$WRAPPED_REAL_BIN" ] && [ -f "$WRAPPED_REAL_BIN" ]; then
+      REAL_BIN="$WRAPPED_REAL_BIN"
+    else
+      REAL_BIN="/usr/lib/node_modules/opencode-ai/bin/opencode"
+    fi
   fi
 
   if [ ! -f "$REAL_BIN" ]; then
@@ -52,12 +65,13 @@ _install_opencode_wrapper() {
     return
   fi
 
-  log "Installing OpenCode credential sync wrapper..."
-
-  local WRAPPER_CONTENT='#!/usr/bin/env bash
+  local WRAPPER_CONTENT
+  WRAPPER_CONTENT=$(cat <<'EOF'
+#!/usr/bin/env bash
+# wp-coding-agents-opencode-wrapper-v2
 set -euo pipefail
 
-# Syncs Anthropic credentials from Kimaki'\''s account store into the format
+# Syncs Anthropic credentials from Kimaki's account store into the format
 # opencode-claude-auth reads (~/.claude/.credentials.json). Kimaki manages
 # OAuth token refresh — this wrapper forwards fresh tokens on each invocation.
 
@@ -65,7 +79,7 @@ KIMAKI_ACCOUNTS="${HOME}/.local/share/opencode/anthropic-oauth-accounts.json"
 CLAUDE_CREDENTIALS="${HOME}/.claude/.credentials.json"
 
 if [[ -f "$KIMAKI_ACCOUNTS" ]] && command -v node >/dev/null 2>&1; then
-  node -e '"'"'
+  node -e '
     const fs = require("fs");
     const path = require("path");
     try {
@@ -91,7 +105,7 @@ if [[ -f "$KIMAKI_ACCOUNTS" ]] && command -v node >/dev/null 2>&1; then
         fs.writeFileSync(claudePath, JSON.stringify(creds, null, 2), { mode: 0o600 });
       }
     } catch {}
-  '"'"' 2>/dev/null || true
+  ' 2>/dev/null || true
 fi
 
 # Legacy sync: claude creds → opencode auth.json (fallback for built-in auth)
@@ -101,15 +115,34 @@ if [[ -f "$CLAUDE_CREDENTIALS" ]] && command -v jq >/dev/null 2>&1; then
   jq "{anthropic:{type:\"oauth\",refresh:(.claudeAiOauth.refreshToken//error(\"missing\")),access:(.claudeAiOauth.accessToken//error(\"missing\")),expires:(.claudeAiOauth.expiresAt//error(\"missing\"))}}" "$CLAUDE_CREDENTIALS" > "${AUTH_DST}.tmp" 2>/dev/null && mv "${AUTH_DST}.tmp" "$AUTH_DST"
 fi
 
-exec '"${REAL_BIN}"' "$@"
-'
+exec "__REAL_BIN__" "$@"
+EOF
+)
+  WRAPPER_CONTENT=${WRAPPER_CONTENT/__REAL_BIN__/$REAL_BIN}
+
+  if [ -f "$OPENCODE_BIN" ] && [ "$(cat "$OPENCODE_BIN" 2>/dev/null)" = "$WRAPPER_CONTENT" ]; then
+    log "OpenCode wrapper already at current version — skipping"
+    return
+  fi
 
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would install OpenCode wrapper at $OPENCODE_BIN"
+    if head -1 "$OPENCODE_BIN" 2>/dev/null | grep -q "bash"; then
+      echo -e "${BLUE}[dry-run]${NC} Would replace OpenCode wrapper at $OPENCODE_BIN"
+    else
+      echo -e "${BLUE}[dry-run]${NC} Would install OpenCode wrapper at $OPENCODE_BIN"
+    fi
   else
+    if head -1 "$OPENCODE_BIN" 2>/dev/null | grep -q "bash"; then
+      local BACKUP_PATH="${OPENCODE_BIN}.bak.$(date +%Y%m%d%H%M%S)"
+      cp "$OPENCODE_BIN" "$BACKUP_PATH"
+      log "Replacing outdated OpenCode wrapper at $OPENCODE_BIN (backup: $BACKUP_PATH)"
+    else
+      log "Installing OpenCode credential sync wrapper..."
+    fi
     echo "$WRAPPER_CONTENT" > "$OPENCODE_BIN"
     chmod +x "$OPENCODE_BIN"
     log "Installed credential sync wrapper at $OPENCODE_BIN → $REAL_BIN"
+    UPDATED_ITEMS+=("opencode credential wrapper")
   fi
 }
 
