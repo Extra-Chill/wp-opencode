@@ -9,8 +9,8 @@
 // kimaki-shipped system prompt. Three things make it durable:
 //
 //   1. It loads the LIVE installed kimaki module (not a copy), so a
-//      kimaki upgrade that introduces new --worktree language fails the
-//      next test run.
+//      kimaki upgrade that introduces new --worktree or project-routing
+//      language fails the next test run.
 //   2. It loads the LIVE plugin source from kimaki/plugins/, so a filter
 //      change in this repo immediately reflows the snapshots.
 //   3. It writes named .txt snapshots to __snapshots__/, so reviewers
@@ -27,7 +27,8 @@
 //     "broken-stripsection" (the regex-only stripSection that misfires
 //     on fenced bash comments). The harness asserts the baseline
 //     strips strictly LESS than the current filter.
-//   - triggers: array of { name, pattern }. Default: worktree + --cwd.
+//   - triggers: array of { name, pattern }. Default: worktree, --cwd,
+//     --agent, and Kimaki project/channel routing language.
 //     Lines matching any trigger in the filtered output count as leaks.
 //   - allowLeakInSection: array of section headings where trigger
 //     matches are intentional (e.g. the appended Minion Routing note
@@ -72,9 +73,16 @@ const VERBOSE = args.includes("--verbose")
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TRIGGERS = [
-  { name: "worktree", pattern: "(?i)worktree" },
-  { name: "--cwd",    pattern: "--cwd"        },
-  { name: "--agent",  pattern: "--agent"      },
+  { name: "worktree",        pattern: "(?i)worktree"             },
+  { name: "--cwd",           pattern: "--cwd"                    },
+  { name: "--agent",         pattern: "--agent"                  },
+  { name: "kimaki project",  pattern: "kimaki project"           },
+  { name: "--project",       pattern: "--project"                },
+  { name: "project channel", pattern: "(?i)project channel"      },
+  { name: "cross-project",   pattern: "(?i)cross-project"        },
+  { name: "#project-name",   pattern: "#project-name"            },
+  { name: "other project",   pattern: "(?i)other project"        },
+  { name: "another project", pattern: "(?i)another project"      },
 ]
 
 const DEFAULT_ALLOW_LEAK_SECTIONS = [

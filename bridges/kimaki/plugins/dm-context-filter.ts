@@ -25,11 +25,12 @@
 //    --project` / `session search --channel <id>`. These are cross-project
 //    discovery vectors; on a single-project fleet server the agent only ever
 //    needs to list sessions in the current project (no flags required).
-// 11. Project discovery inlines — scattered `kimaki project list|add|create`,
-//    `kimaki send --project`, and bare `kimaki send --channel <channel_id>`
-//    examples that survive section stripping. These let the agent discover
-//    other Discord channels and route minion sessions away from the current
-//    thread. See Extra-Chill/data-machine-code#49.
+// 11. Project discovery/guidance inlines — scattered prose and examples for
+//    `kimaki project list|add|create`, `kimaki send --project`, bare
+//    `kimaki send --channel <channel_id>`, `#project-name` resolution, and
+//    "project channel" routing. These let the agent discover other Discord
+//    channels and route minion sessions away from the current thread. See
+//    Extra-Chill/data-machine-code#49.
 // 12. Agent override inlines — `--agent <current_agent>` examples from the
 //    generic Kimaki prompt. On DM-managed sites the Discord channel owns the
 //    personal-agent binding; passing the runtime agent (for example `opencode`)
@@ -244,7 +245,7 @@ function stripWorktreeInlines(block: string): string {
 }
 
 /**
- * Remove project / channel discovery examples that survive section stripping.
+ * Remove project / channel discovery guidance that survives section stripping.
  *
  * The system prompt bakes the current channel ID into most `kimaki send`
  * examples via `${channelId}`, which is the safe/correct form for this
@@ -257,6 +258,8 @@ function stripWorktreeInlines(block: string): string {
  *   - `kimaki send --channel <channel_id>` with a literal `<channel_id>`
  *     placeholder (as opposed to the baked-in current-channel ID) — teaches
  *     the agent it can pick a channel freely.
+ *   - `#project-name` / "project channel" prose — teaches the agent to treat
+ *     repo/project channels as valid routing targets.
  *
  * On DM-managed sites the current Discord thread is the only correct target
  * for minion sessions. Cross-repo work uses DM Code's workspace worktrees,
@@ -267,6 +270,28 @@ function stripWorktreeInlines(block: string): string {
  */
 function stripProjectDiscoveryInlines(block: string): string {
   let result = block;
+
+  // If upstream renames the cross-project section, strip its distinctive prose
+  // before deleting leftover command lines below.
+  result = result.replace(
+    /\n+When the user references another project by name,[\s\S]*?root project directories\.\n/g,
+    "\n"
+  );
+
+  result = result.replace(
+    /\n+When the user uses `#project-name` syntax,[\s\S]*?before acting,[^\n]*\n/g,
+    "\n"
+  );
+
+  result = result.replace(
+    /\n+To send a task to another project:[\s\S]*?(?=\n\S|$)/g,
+    "\n"
+  );
+
+  result = result.replace(
+    /\n+When sending prompts to other projects,[^\n]*\n/g,
+    "\n"
+  );
 
   // Standalone `kimaki project ...` commands on their own lines (inside any
   // surviving section or orphaned between sections). Covers list|add|create.
@@ -302,6 +327,13 @@ function stripProjectDiscoveryInlines(block: string): string {
   // dominant content (starts with command + --project).
   result = result.replace(
     /\n+kimaki (?:session|task) [^\n]*--project [^\n]*\n/g,
+    "\n"
+  );
+
+  // Remove any whole-line project-routing prose that may survive if Kimaki
+  // changes surrounding headings or examples.
+  result = result.replace(
+    /\n+[^\n]*(?:project channel|cross-project|#project-name|other project|another project)[^\n]*\n/gi,
     "\n"
   );
 
