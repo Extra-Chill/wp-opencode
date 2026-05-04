@@ -1,6 +1,6 @@
 ---
 name: upgrade-wp-coding-agents
-description: "Safely upgrade wp-coding-agents on a live install — VPS or local — without touching user state. Syncs plugins, skills, AGENTS.md, systemd unit (VPS), and re-applies the claude-auth PascalCase patch."
+description: "Safely upgrade wp-coding-agents on a live install — VPS or local — without touching user state. Syncs plugins, skills, AGENTS.md, systemd unit (VPS), and removes any legacy opencode-claude-auth wrapper from prior installs."
 compatibility: "Requires a wp-coding-agents repo clone and an existing setup. Works on VPS (systemd) and local installs (macOS launchd or manual)."
 ---
 

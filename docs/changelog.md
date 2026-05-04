@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.9.0] - 2026-05-04
+
+### Removed
+- BREAKING: drop all `opencode-claude-auth` integration (#117). The bash
+  wrapper at the global `opencode` binary, the PascalCase patch, the
+  third-party plugin entry in generated `opencode.json`, and the matching
+  drift check in `lib/repair-opencode-json.py` are gone. Kimaki's built-in
+  AnthropicAuthPlugin handles OAuth on Kimaki bridges; non-Kimaki bridges
+  use opencode's native auth flow (`opencode auth login anthropic`). Older
+  upgrades installed the wrapper unconditionally on every Kimaki VPS, which
+  shimmed the npm-shipped binary purely to feed a plugin we no longer load.
+- delete `lib/patch-claude-auth.py` and `tests/opencode-wrapper.sh`.
+
+### Added
+- `_remove_legacy_opencode_wrapper` in `runtimes/opencode.sh`. Detects the
+  `wp-coding-agents-opencode-wrapper-v2` sentinel on the global `opencode`
+  binary, restores a hardlink (or symlink) to the real `.opencode` binary,
+  and cleans up matching `.bak.*` files. Runs from `runtime_install` and
+  from upgrade Phase 7. Idempotent and a no-op on installs that never had
+  the wrapper.
+- `tests/opencode-wrapper-removal.sh` regression: legacy wrapper is removed
+  cleanly, repo no longer ships the install machinery, non-wrapper binaries
+  are never touched.
+
+### Changed
+- upgrade Phase 7 renamed from `reapply_claude_auth_patch` to
+  `remove_legacy_opencode_wrapper_phase`.
+- `.github/workflows/shell.yml`: replace `opencode-wrapper` job with
+  `opencode-wrapper-removal`.
+
 ## [0.8.2] - 2026-05-03
 
 ### Fixed

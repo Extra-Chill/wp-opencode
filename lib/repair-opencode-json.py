@@ -47,11 +47,10 @@ CLI usage:
 Without --additive or --apply the tool is a pure diagnostic.
 
 --additive is the default mode called from setup.sh and upgrade.sh: it
-installs managed plugin entries the user is missing (dm-context-filter,
-dm-agent-sync, opencode-claude-auth — whichever apply to the detected
-runtime + chat-bridge combo) and migrates legacy agent prompts to the
-top-level `instructions` array (fixes Anthropic Claude Max OAuth, see
-wp-coding-agents#60). It never removes user-added plugin entries.
+installs managed plugin entries the user is missing (dm-context-filter
+and dm-agent-sync on Kimaki bridges) and migrates legacy agent prompts
+to the top-level `instructions` array (fixes Anthropic Claude Max OAuth,
+see wp-coding-agents#60). It never removes user-added plugin entries.
 
 --apply is the opt-in full reconciliation, used by
 `upgrade.sh --repair-opencode-json`. It removes unexpected plugin
@@ -85,15 +84,11 @@ def expected_plugins(
         # "drift" comparisons on those runtimes are no-ops.
         return plugins
 
-    # opencode-claude-auth: only when kimaki is NOT the chat bridge.
-    # Kimaki v0.6.0+ ships a built-in AnthropicAuthPlugin that supersedes it;
-    # loading both causes them to compete for the `anthropic` auth provider.
-    # See wp-coding-agents#51.
-    if chat_bridge != "kimaki":
-        plugins.append("opencode-claude-auth@latest")
-
     # DM context filter + agent sync: only when the bridge is Kimaki, since
-    # these plugins rewrite Kimaki-specific prompts.
+    # these plugins rewrite Kimaki-specific prompts. wp-coding-agents does
+    # not manage opencode-claude-auth on any bridge — Kimaki ships its own
+    # AnthropicAuthPlugin, and non-kimaki bridges use opencode's native auth
+    # flow. See wp-coding-agents#117.
     if chat_bridge == "kimaki":
         plugins.append(f"{kimaki_plugins_dir}/dm-context-filter.ts")
         plugins.append(f"{kimaki_plugins_dir}/dm-agent-sync.ts")
@@ -124,7 +119,8 @@ def repair(
     """Return the repaired `plugin` array.
 
     Default behaviour: replace `plugin` with exactly `expected`. This removes
-    stale entries (like `opencode-claude-auth@latest` on kimaki installs).
+    stale entries left behind by older wp-coding-agents versions (e.g.
+    `opencode-claude-auth@latest`, which is no longer managed — see #117).
 
     With preserve_extras=True: add missing entries but keep unexpected ones.
     Not currently exposed via CLI — here for future use.
