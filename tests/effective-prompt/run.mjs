@@ -86,11 +86,10 @@ const DEFAULT_TRIGGERS = [
   { name: "another project", pattern: "(?i)another project"      },
 ]
 
-const DEFAULT_ALLOW_LEAK_SECTIONS = [
-  // The filter intentionally appends this section with DMC workspace handoff
-  // language and the bridge helper's `--cwd` option.
-  "## Data Machine Session Handoff",
-]
+// The filter is strip-only — it never appends sections. Any trigger word
+// (worktree, --cwd, --agent, etc.) appearing in the filtered output is a
+// real leak that needs investigation, not an intentional appendix.
+const DEFAULT_ALLOW_LEAK_SECTIONS = []
 
 const DEFAULT_SCENARIO = {
   description: "default opencode session, single project, two agents",

@@ -36,14 +36,12 @@
 //    personal-agent binding; passing the runtime agent (for example `opencode`)
 //    bypasses that binding and starts the wrong kind of minion session.
 //
-// What it injects into the system prompt:
-// - `## WordPress Site Runtime` — positive instruction replacing Kimaki's
-//   generic tunnel/dev-server section with the local/VPS WordPress boundary:
-//   use the existing site runtime by default; tunnel only for inbound public
-//   URLs like webhooks/OAuth callbacks or explicit browser previews.
-// - `## Data Machine Session Handoff` — positive instruction that exposes the
-//   Data Machine flow: create/reuse a DMC workspace checkout, then launch a
-//   Kimaki-backed helper session with the wp-coding-agents bridge helper.
+// This plugin is strip-only. Positive guidance about how to use Kimaki's
+// session bridge or the WordPress site runtime belongs in Data Machine's
+// instruction stack (AGENTS.md, SOUL.md, SITE.md, etc.) — not pre-injected
+// into every prompt by a runtime bridge filter. Bridge-specific guidance
+// pre-injected here would recreate the same problem we're trying to solve:
+// runtime-bridge concerns leaking into the generic agent context.
 //
 // NOTE: "## debugging kimaki issues" is intentionally kept — when Kimaki itself
 // throws errors, the agent needs the kimaki.log path to investigate.
@@ -95,8 +93,6 @@ const fleetContextFilter: Plugin = async () => {
         result = stripAgentOverrideInlines(result);
         // Clean up leftover double/triple blank lines.
         result = result.replace(/\n{3,}/g, "\n\n");
-        result = appendWordPressSiteRuntimeInstruction(result);
-        result = appendDataMachineSessionHandoffInstruction(result);
         return result;
       });
     },
@@ -377,57 +373,6 @@ function stripAgentOverrideInlines(block: string): string {
   result = result.replace(/ --agent <current_agent>/g, "");
 
   return result;
-}
-
-/**
- * Append positive WordPress runtime guidance after stripping Kimaki's generic
- * tunnel/dev-server section.
- *
- * Local and VPS installs intentionally use different plugin paths, but the
- * runtime policy is the same: the WordPress site already exists. Local Studio
- * agents should use Studio's site runtime and `studio wp`; VPS agents should
- * use the live site and `wp`. A tunnel is still useful when the task needs an
- * inbound public URL, but it is not the default path for interacting with the
- * site.
- *
- * @param {string} block System prompt block.
- * @return {string} System prompt block with WordPress runtime guidance appended.
- */
-function appendWordPressSiteRuntimeInstruction(block: string): string {
-  const instruction = `
-
-## WordPress Site Runtime
-
-This is a Data Machine-managed WordPress agent install. Use the existing WordPress site runtime by default — do not start a separate dev server just to work on the site.
-
-On local WordPress Studio installs, use Studio and \`studio wp\` against the existing site. On VPS installs, use the live WordPress site and \`wp\` in the configured site path.
-
-Use \`kimaki tunnel\` only when the task specifically needs an inbound public URL, such as GitHub webhooks, OAuth callbacks, or an explicit browser preview for someone who cannot access the local/VPS site directly.
-`;
-  return block.replace(/\s*$/, "") + instruction;
-}
-
-/**
- * Append a positive Data Machine session handoff instruction.
- *
- * @param {string} block System prompt block.
- * @return {string} System prompt block with Data Machine handoff guidance appended.
- */
-function appendDataMachineSessionHandoffInstruction(block: string): string {
-  const instruction = `
-
-## Data Machine Session Handoff
-
-For parallel repo work, create or reuse a Data Machine Code workspace checkout, then launch the helper session through the Kimaki bridge helper. Data Machine Code owns repo/workspace setup; Kimaki carries the Discord session.
-
-Typical flow:
-
-1. Create the checkout with \`studio wp datamachine-code workspace worktree add <repo> <branch>\`.
-2. Start the helper session with \`datamachine-kimaki-session --channel <current_channel> --cwd <workspace_path> --prompt '<task>'\`.
-3. Use the helper thread for the isolated task and bring the result back here.
-`;
-  // Ensure exactly one blank line between existing content and the appendix.
-  return block.replace(/\s*$/, "") + instruction;
 }
 
 export default fleetContextFilter;
