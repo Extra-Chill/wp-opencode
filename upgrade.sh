@@ -27,7 +27,7 @@
 #      Each unit's existing Environment= lines are preserved (host custom
 #      values, secrets) while structural lines are refreshed from the same
 #      template the install path uses (bridges/<name>.sh::bridge_render_*).
-#   7. Re-apply opencode-claude-auth PascalCase patch (opencode runtime only)
+#   7. Remove legacy opencode-claude-auth bash wrapper, if any (#117)
 #   8. Summary — prints the right restart + verify commands per bridge × env.
 #
 # Usage:
@@ -44,10 +44,10 @@
 #   chat-bridge service.
 #
 #   opencode.json is touched by default in additive mode: managed plugin
-#   entries the user is missing get added (dm-context-filter.ts,
-#   dm-agent-sync.ts, opencode-claude-auth@latest — whichever apply), and
-#   legacy `agent.build.prompt`/`agent.plan.prompt` keys get migrated to a
-#   top-level `instructions` array (fixes Anthropic Claude Max OAuth, see
+#   entries the user is missing get added (dm-context-filter.ts and
+#   dm-agent-sync.ts on Kimaki bridges), and legacy
+#   `agent.build.prompt`/`agent.plan.prompt` keys get migrated to a top-level
+#   `instructions` array (fixes Anthropic Claude Max OAuth, see
 #   wp-coding-agents#60). User-added plugin entries are left alone.
 #
 #   --repair-opencode-json upgrades the repair to full reconciliation:
@@ -178,12 +178,10 @@ DEFAULT TOUCHES:
     checkouts to their latest version tags. Non-git plugin directories are
     skipped. Use --skip-plugins to skip this phase.
   - opencode.json — additive repair. Adds managed plugin entries the
-    user is missing (dm-context-filter.ts, dm-agent-sync.ts,
-    opencode-claude-auth@latest — whichever apply to the detected runtime
-    + chat bridge) and migrates "agent.build.prompt" to top-level
-    "instructions" (fixes Anthropic Claude Max OAuth). Never removes
-    user-added plugins. Preserves all other keys.
-    Writes a .backup.<ts> alongside.
+    user is missing (dm-context-filter.ts and dm-agent-sync.ts on Kimaki
+    bridges) and migrates "agent.build.prompt" to top-level "instructions"
+    (fixes Anthropic Claude Max OAuth). Never removes user-added plugins.
+    Preserves all other keys. Writes a .backup.<ts> alongside.
 
 OPT-IN TOUCHES:
   - opencode.json (--repair-opencode-json) — full reconcile. In addition
@@ -380,10 +378,9 @@ check_opencode_json_drift() {
 
   # Runs whenever opencode.json exists on disk. Default behaviour is
   # additive repair: managed plugin entries the user is missing get added
-  # (dm-context-filter.ts, dm-agent-sync.ts, opencode-claude-auth@latest —
-  # whichever apply to the detected runtime + chat bridge), and legacy
-  # agent.build.prompt / agent.plan.prompt get migrated to a top-level
-  # `instructions` array (fixes Anthropic Claude Max OAuth,
+  # (dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges), and
+  # legacy agent.build.prompt / agent.plan.prompt get migrated to a
+  # top-level `instructions` array (fixes Anthropic Claude Max OAuth,
   # wp-coding-agents#60).
   #
   # User-added plugin entries are left alone in additive mode. If any are
@@ -639,10 +636,18 @@ update_chat_bridge_launchd() {
 }
 
 # ============================================================================
-# Phase 7: Re-apply opencode-claude-auth PascalCase patch
+# Phase 7: Remove legacy opencode-claude-auth wrapper, if any
+#
+# wp-coding-agents used to install a bash wrapper at the global `opencode`
+# binary path that synced Kimaki's Anthropic OAuth credentials into
+# ~/.claude/.credentials.json so the third-party `opencode-claude-auth`
+# plugin could read them. That whole integration was retired (see #117):
+# Kimaki has a built-in AnthropicAuthPlugin and non-kimaki bridges use
+# opencode's native auth flow. This phase deletes any leftover wrapper
+# left behind by older upgrades and restores the npm-shipped binary.
 # ============================================================================
 
-reapply_claude_auth_patch() {
+remove_legacy_opencode_wrapper_phase() {
   _run_filter_active patch || return 0
 
   if [ "$RUNTIME" != "opencode" ] && [ "$CHAT_BRIDGE" != "kimaki" ]; then
@@ -650,46 +655,15 @@ reapply_claude_auth_patch() {
     return 0
   fi
 
-  log "Phase 7: Checking OpenCode auth integration..."
+  log "Phase 7: Checking for legacy opencode wrapper..."
 
-  if ! declare -F _install_opencode_wrapper >/dev/null; then
-    # Kimaki spawns opencode-serve even when the primary editing runtime is not
-    # OpenCode, so stale wrappers must be repairable from any Kimaki install.
-    # Source the runtime file for its wrapper helper without running a full
-    # OpenCode runtime install.
+  if ! declare -F _remove_legacy_opencode_wrapper >/dev/null; then
+    # Source runtime file for the helper without running a full install.
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/runtimes/opencode.sh"
   fi
 
-  _install_opencode_wrapper
-
-  if [ "$RUNTIME" != "opencode" ]; then
-    log "  Skipping opencode-claude-auth patch (runtime is $RUNTIME)"
-    return 0
-  fi
-
-  log "  Re-applying opencode-claude-auth PascalCase patch..."
-
-  if [ ! -f "$SCRIPT_DIR/lib/patch-claude-auth.py" ]; then
-    warn "  patch-claude-auth.py not found — skipping"
-    return 0
-  fi
-
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would run: python3 $SCRIPT_DIR/lib/patch-claude-auth.py"
-    return 0
-  fi
-
-  # The patch script is idempotent — already-patched is a no-op.
-  local patch_output
-  if patch_output=$(python3 "$SCRIPT_DIR/lib/patch-claude-auth.py" 2>&1); then
-    log "  $patch_output"
-    if echo "$patch_output" | grep -q "Patched successfully"; then
-      UPDATED_ITEMS+=("opencode-claude-auth (PascalCase patch)")
-    fi
-  else
-    warn "  Patch failed: $patch_output"
-  fi
+  _remove_legacy_opencode_wrapper
 }
 
 # ============================================================================
@@ -801,5 +775,5 @@ sync_skills
 regenerate_agents_md
 update_chat_bridge_systemd
 update_chat_bridge_launchd
-reapply_claude_auth_patch
+remove_legacy_opencode_wrapper_phase
 print_summary

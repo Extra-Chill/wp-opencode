@@ -10,171 +10,67 @@ runtime_install() {
     log "OpenCode already installed: $(opencode --version 2>/dev/null || echo 'unknown')"
   fi
 
-  _install_opencode_wrapper
-  _patch_claude_auth_plugin
+  _remove_legacy_opencode_wrapper
 }
 
-# Install a wrapper script that syncs Kimaki's Anthropic OAuth credentials
-# into ~/.claude/.credentials.json for opencode-claude-auth to consume.
-# On VPS, Kimaki manages token refresh — the wrapper keeps the claude creds
-# file in sync before each opencode invocation.
-_install_opencode_wrapper() {
-  # Only needed when kimaki is the chat bridge (it manages OAuth tokens)
-  if [ "$CHAT_BRIDGE" != "kimaki" ]; then
-    return
-  fi
-
-  if [ "$LOCAL_MODE" = true ]; then
-    # Local installs don't use the wrapper — credentials come from the user's
-    # own claude auth or keychain directly.
-    return
-  fi
-
+# Remove any legacy wp-coding-agents-opencode-wrapper-v2 bash shim that prior
+# upgrades installed at the global `opencode` path. The wrapper existed to
+# feed Anthropic OAuth credentials into ~/.claude/.credentials.json for the
+# opencode-claude-auth plugin. wp-coding-agents no longer ships, installs, or
+# patches that plugin: Kimaki's built-in AnthropicAuthPlugin handles OAuth
+# (token refresh, multi-account rotation, request rewriting), and non-kimaki
+# bridges authenticate via opencode's native auth flow. The wrapper is purely
+# legacy and must not be re-installed by any future upgrade run.
+_remove_legacy_opencode_wrapper() {
   local OPENCODE_BIN
-  OPENCODE_BIN=$(command -v opencode 2>/dev/null || echo "/usr/bin/opencode")
+  OPENCODE_BIN=$(command -v opencode 2>/dev/null || echo "")
+  [ -n "$OPENCODE_BIN" ] || return 0
+  [ -f "$OPENCODE_BIN" ] || return 0
 
-  # Find the real opencode binary (after npm install, it's in node_modules)
-  local REAL_BIN
-  REAL_BIN=$(readlink -f "$OPENCODE_BIN" 2>/dev/null || echo "$OPENCODE_BIN")
-  # If the resolved path is still a wrapper, dig deeper. Existing installs may
-  # have old wp-coding-agents wrappers at /usr/local/bin/opencode; parse their
-  # exec target before falling back to the npm global package path.
-  if head -1 "$REAL_BIN" 2>/dev/null | grep -q "bash"; then
-    local WRAPPED_REAL_BIN
-    WRAPPED_REAL_BIN=""
-    while IFS= read -r line; do
-      case "$line" in
-        exec\ *opencode*|exec\ /*opencode*)
-          set -- $line
-          WRAPPED_REAL_BIN="${2#\'}"
-          WRAPPED_REAL_BIN="${WRAPPED_REAL_BIN%\'}"
-          WRAPPED_REAL_BIN="${WRAPPED_REAL_BIN#\"}"
-          WRAPPED_REAL_BIN="${WRAPPED_REAL_BIN%\"}"
-          ;;
-      esac
-    done < "$REAL_BIN"
-    if [ -n "$WRAPPED_REAL_BIN" ] && [ -f "$WRAPPED_REAL_BIN" ]; then
-      REAL_BIN="$WRAPPED_REAL_BIN"
-    else
-      REAL_BIN="/usr/lib/node_modules/opencode-ai/bin/opencode"
-    fi
+  # Only act on the known wp-coding-agents wrapper sentinel — never touch a
+  # binary or a wrapper installed by anything else.
+  if ! grep -q "wp-coding-agents-opencode-wrapper" "$OPENCODE_BIN" 2>/dev/null; then
+    return 0
+  fi
+
+  # Recover the real binary path from the wrapper's `exec` line so we can
+  # restore the global `opencode` symlink/hardlink to it.
+  local REAL_BIN=""
+  while IFS= read -r line; do
+    case "$line" in
+      exec\ *opencode*|exec\ /*opencode*)
+        set -- $line
+        REAL_BIN="${2#\'}"
+        REAL_BIN="${REAL_BIN%\'}"
+        REAL_BIN="${REAL_BIN#\"}"
+        REAL_BIN="${REAL_BIN%\"}"
+        ;;
+    esac
+  done < "$OPENCODE_BIN"
+
+  # Fall back to the npm-shipped layout: opencode-ai keeps the real binary at
+  # bin/.opencode and ships a wrapper at bin/opencode in older versions; newer
+  # versions hardlink them. Either way, .opencode is the canonical real binary.
+  if [ -z "$REAL_BIN" ] || [ ! -f "$REAL_BIN" ]; then
+    REAL_BIN="/usr/lib/node_modules/opencode-ai/bin/.opencode"
   fi
 
   if [ ! -f "$REAL_BIN" ]; then
-    warn "Could not find real opencode binary — skipping wrapper install"
-    return
-  fi
-
-  local WRAPPER_CONTENT
-  WRAPPER_CONTENT=$(cat <<'EOF'
-#!/usr/bin/env bash
-# wp-coding-agents-opencode-wrapper-v2
-set -euo pipefail
-
-# Syncs Anthropic credentials from Kimaki's account store into the format
-# opencode-claude-auth reads (~/.claude/.credentials.json). Kimaki manages
-# OAuth token refresh — this wrapper forwards fresh tokens on each invocation.
-
-KIMAKI_ACCOUNTS="${HOME}/.local/share/opencode/anthropic-oauth-accounts.json"
-CLAUDE_CREDENTIALS="${HOME}/.claude/.credentials.json"
-
-if [[ -f "$KIMAKI_ACCOUNTS" ]] && command -v node >/dev/null 2>&1; then
-  node -e '
-    const fs = require("fs");
-    const path = require("path");
-    try {
-      const accounts = JSON.parse(fs.readFileSync(process.env.KIMAKI_ACCOUNTS, "utf-8"));
-      if (!accounts.accounts || accounts.accounts.length === 0) process.exit(0);
-      const idx = accounts.activeIndex ?? 0;
-      const acct = accounts.accounts[idx] ?? accounts.accounts[0];
-      if (!acct || !acct.refresh) process.exit(0);
-      const claudePath = process.env.CLAUDE_CREDENTIALS;
-      let creds = {};
-      try { creds = JSON.parse(fs.readFileSync(claudePath, "utf-8")); } catch {}
-      const kimakiExpires = acct.expires || 0;
-      const claudeExpires = creds.claudeAiOauth?.expiresAt || 0;
-      if (kimakiExpires > claudeExpires) {
-        creds.claudeAiOauth = creds.claudeAiOauth || {};
-        creds.claudeAiOauth.refreshToken = acct.refresh;
-        creds.claudeAiOauth.expiresAt = acct.expires;
-        if (acct.access) creds.claudeAiOauth.accessToken = acct.access;
-        creds.claudeAiOauth.subscriptionType = "max";
-        creds.claudeAiOauth.scopes = ["user:file_upload","user:inference","user:mcp_servers","user:profile","user:sessions:claude_code"];
-        creds.claudeAiOauth.rateLimitTier = "default_claude_max_20x";
-        fs.mkdirSync(path.dirname(claudePath), { recursive: true });
-        fs.writeFileSync(claudePath, JSON.stringify(creds, null, 2), { mode: 0o600 });
-      }
-    } catch {}
-  ' 2>/dev/null || true
-fi
-
-# Legacy sync: claude creds → opencode auth.json (fallback for built-in auth)
-AUTH_DST="${HOME}/.local/share/opencode/auth.json"
-if [[ -f "$CLAUDE_CREDENTIALS" ]] && command -v jq >/dev/null 2>&1; then
-  mkdir -p "$(dirname "$AUTH_DST")"
-  jq "{anthropic:{type:\"oauth\",refresh:(.claudeAiOauth.refreshToken//error(\"missing\")),access:(.claudeAiOauth.accessToken//error(\"missing\")),expires:(.claudeAiOauth.expiresAt//error(\"missing\"))}}" "$CLAUDE_CREDENTIALS" > "${AUTH_DST}.tmp" 2>/dev/null && mv "${AUTH_DST}.tmp" "$AUTH_DST"
-fi
-
-exec "__REAL_BIN__" "$@"
-EOF
-)
-  WRAPPER_CONTENT=${WRAPPER_CONTENT/__REAL_BIN__/$REAL_BIN}
-
-  if [ -f "$OPENCODE_BIN" ] && [ "$(cat "$OPENCODE_BIN" 2>/dev/null)" = "$WRAPPER_CONTENT" ]; then
-    log "OpenCode wrapper already at current version — skipping"
-    return
+    warn "Legacy opencode wrapper detected at $OPENCODE_BIN but real binary not found — leaving alone"
+    return 0
   fi
 
   if [ "$DRY_RUN" = true ]; then
-    if head -1 "$OPENCODE_BIN" 2>/dev/null | grep -q "bash"; then
-      echo -e "${BLUE}[dry-run]${NC} Would replace OpenCode wrapper at $OPENCODE_BIN"
-    else
-      echo -e "${BLUE}[dry-run]${NC} Would install OpenCode wrapper at $OPENCODE_BIN"
-    fi
-  else
-    if head -1 "$OPENCODE_BIN" 2>/dev/null | grep -q "bash"; then
-      local BACKUP_PATH="${OPENCODE_BIN}.bak.$(date +%Y%m%d%H%M%S)"
-      cp "$OPENCODE_BIN" "$BACKUP_PATH"
-      log "Replacing outdated OpenCode wrapper at $OPENCODE_BIN (backup: $BACKUP_PATH)"
-    else
-      log "Installing OpenCode credential sync wrapper..."
-    fi
-    echo "$WRAPPER_CONTENT" > "$OPENCODE_BIN"
-    chmod +x "$OPENCODE_BIN"
-    log "Installed credential sync wrapper at $OPENCODE_BIN → $REAL_BIN"
-    UPDATED_ITEMS+=("opencode credential wrapper")
-  fi
-}
-
-# Patch opencode-claude-auth to use PascalCase mcp_ tool names.
-#
-# Anthropic's billing validator rejects lowercase mcp_-prefixed tool names
-# (e.g. mcp_bash) as non-Claude-Code clients, causing 400 "out of extra usage"
-# errors. Real Claude Code uses PascalCase (mcp_Bash, mcp_Read). This patch
-# applies the same convention until the upstream plugin releases a fix.
-#
-# Safe to re-run: detects if already patched and skips.
-# Ref: https://github.com/griffinmartin/opencode-claude-auth/issues/188
-#      https://github.com/griffinmartin/opencode-claude-auth/pull/191
-_patch_claude_auth_plugin() {
-  if [ ! -f "$SCRIPT_DIR/lib/patch-claude-auth.py" ]; then
-    warn "patch-claude-auth.py not found — skipping auth plugin patch"
-    return
+    echo -e "${BLUE}[dry-run]${NC} Would remove legacy opencode wrapper at $OPENCODE_BIN and link to $REAL_BIN"
+    return 0
   fi
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${BLUE}[dry-run]${NC} Would patch opencode-claude-auth with PascalCase tool names"
-    return
+  log "Removing legacy opencode wrapper at $OPENCODE_BIN (real binary: $REAL_BIN)"
+  rm -f "$OPENCODE_BIN" "${OPENCODE_BIN}.bak."* 2>/dev/null || true
+  if ! ln "$REAL_BIN" "$OPENCODE_BIN" 2>/dev/null; then
+    ln -s "$REAL_BIN" "$OPENCODE_BIN"
   fi
-
-  log "Checking opencode-claude-auth for PascalCase patch..."
-  python3 "$SCRIPT_DIR/lib/patch-claude-auth.py" 2>/dev/null
-
-  if [ $? -eq 0 ]; then
-    log "opencode-claude-auth: PascalCase tool names applied (mcp_Bash, mcp_Read, etc.)"
-  else
-    warn "opencode-claude-auth patch failed or plugin not yet cached — will retry on next run"
-  fi
+  UPDATED_ITEMS+=("removed legacy opencode wrapper")
 }
 
 runtime_discover_dm_paths() {
@@ -251,23 +147,13 @@ runtime_generate_config() {
     OPENCODE_JSON="$OPENCODE_JSON,\n  \"small_model\": \"${OPENCODE_SMALL_MODEL}\""
   fi
 
-  # OpenCode plugins
+  # OpenCode plugins. wp-coding-agents only manages plugins it owns end to
+  # end: dm-context-filter.ts and dm-agent-sync.ts on Kimaki bridges. The
+  # opencode-claude-auth plugin is intentionally NOT installed on any bridge:
+  # Kimaki ships a built-in AnthropicAuthPlugin and non-kimaki bridges use
+  # opencode's native auth flow (`opencode auth login anthropic`). See
+  # Extra-Chill/wp-coding-agents#117.
   OPENCODE_PLUGINS=""
-
-  # opencode-claude-auth: Claude Max/Pro OAuth auth + billing header injection
-  # + system prompt relocation to avoid Anthropic's third-party app detection.
-  #
-  # Skip when CHAT_BRIDGE=kimaki. Kimaki v0.6.0+ ships a built-in
-  # AnthropicAuthPlugin that handles the same concerns (OAuth, token refresh,
-  # request/response rewriting, multi-account rotation). Loading both plugins
-  # causes them to compete for the same `anthropic` auth provider in OpenCode.
-  # See Extra-Chill/wp-coding-agents#51.
-  if [ "$CHAT_BRIDGE" != "kimaki" ]; then
-    OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"opencode-claude-auth@latest\","
-  fi
-
-  # DM context filter + agent sync — only when the bridge is Kimaki, since
-  # these plugins rewrite Kimaki-specific prompts. Paths resolved above.
   if [ "$CHAT_BRIDGE" = "kimaki" ]; then
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-context-filter.ts\","
     OPENCODE_PLUGINS="${OPENCODE_PLUGINS}\n    \"${KIMAKI_PLUGINS_DIR}/dm-agent-sync.ts\","
